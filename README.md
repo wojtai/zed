@@ -1,0 +1,1 @@
+# [PL] ZED - Zaawansowana eksploracja danych
