@@ -17,7 +17,8 @@ knitr::opts_chunk$set(echo = TRUE)
 library(readxl)
 library(httr)
 ```
-
+# Data preprocessing
+## Read Data
 ```{r read-data}
 # https://stackoverflow.com/a/41368947
 url <- "http://www.cs.put.poznan.pl/dbrzezinski/teaching/zed/wuhan_blood_sample_data_Jan_Feb_2020.xlsx"
@@ -25,10 +26,58 @@ GET(url, write_disk(tf <- tempfile(fileext = ".xlsx")))
 df <- read_excel(tf)
 ```
 
+## Analyze
+### Print column names
 ```{r}
 names(df)
 ```
 
+
+### Print sample
 ```{r}
 df[1:10, 1:7]
 ```
+
+## Preprocess
+### Set missing PATIENT_ID parameters
+```{r}
+cur <- 0
+for (row in 1:nrow(df)){
+  if(is.na(df[row, "PATIENT_ID"])) {
+    df[row, "PATIENT_ID"] <- cur
+  }
+  else {
+    cur <- df[row, "PATIENT_ID"]
+  }
+}
+```
+
+## Print summary
+```{r}
+summary(df)
+```
+
+```{r}
+dim(df)
+```
+
+Zauważamy, że dużo NA, wynika to z tego, że badania są rozrzucone.
+Badanie zbiorów, czy któreś są częstsze niż inne.
+```{r}
+tmp <- apply(df[,-(1:7)],c(1,2), function(x) !is.na(x))
+fun <- apply(tmp, 1, function(x) colnames(tmp)[x])
+uni.sets<-unique(fun)
+fun.str <- sapply(fun, function(x) paste(x, collapse=", "))
+```
+
+Number of unique transactions
+```{r}
+length(uni.sets)
+```
+Most frequent transaction
+```{r}
+tab <- table(fun.str)
+tab[tab == max(tab)]
+```
+
+Kolejny krok - agregacja transakcji według okna
