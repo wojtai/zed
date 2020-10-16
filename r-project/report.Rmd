@@ -16,6 +16,7 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r libraries}
 library(readxl)
 library(httr)
+library(arules)
 ```
 # Data preprocessing
 ## Read Data
@@ -24,18 +25,6 @@ library(httr)
 url <- "http://www.cs.put.poznan.pl/dbrzezinski/teaching/zed/wuhan_blood_sample_data_Jan_Feb_2020.xlsx"
 GET(url, write_disk(tf <- tempfile(fileext = ".xlsx")))
 df <- read_excel(tf)
-```
-
-## Analyze
-### Print column names
-```{r}
-names(df)
-```
-
-
-### Print sample
-```{r}
-df[1:10, 1:7]
 ```
 
 ## Preprocess
@@ -54,30 +43,58 @@ for (row in 1:nrow(df)){
 
 ## Print summary
 ```{r}
-summary(df)
+sapply(df, summary)
 ```
 
-```{r}
-dim(df)
-```
-
+## "Transakcje" badań
 Zauważamy, że dużo NA, wynika to z tego, że badania są rozrzucone.
 Badanie zbiorów, czy któreś są częstsze niż inne.
 ```{r}
-tmp <- apply(df[,-(1:7)],c(1,2), function(x) !is.na(x))
-fun <- apply(tmp, 1, function(x) colnames(tmp)[x])
-uni.sets<-unique(fun)
-fun.str <- sapply(fun, function(x) paste(x, collapse=", "))
+# tr.tf - transactions - TRUE/FALSE
+tr.tf <- sapply(df[,-(1:7)], function(x) !is.na(x))
+transactions <- apply(tr.tf, 1, function(x) colnames(tr.tf)[x])
+uni.sets <- unique(transactions)
+# tr.str <- sapply(transactions, function(x) paste(x, collapse=", "))
 ```
 
-Number of unique transactions
+```{r}
+parse_transaction <- function(arg) {
+  if(length(arg) <= 3) {
+    return(paste(arg, collapse=", "))
+  } else {
+    beg <- paste(arg[1:2], collapse=", ");
+    rem = length(arg) - 2;
+    return(paste(beg, "and", rem, "more"))
+  }
+}
+tr.str <- sapply(transactions, parse_transaction)
+```
+
+Ilość unikalnych transakcji
 ```{r}
 length(uni.sets)
 ```
-Most frequent transaction
+
+Najczęstsze transakcje
 ```{r}
-tab <- table(fun.str)
+tab <- table(tr.str)
 tab[tab == max(tab)]
 ```
 
-Kolejny krok - agregacja transakcji według okna
+Należałoby znaleźć maksymalne zbiory częste o wysokim support.  
+
+```{r}
+itemsets <- apriori(tr.tf, parameter = list(target="closed frequent itemsets", support=.1, minlen=1, maxlen=30, maxtime=60))
+itemsets
+```
+
+```{r}
+inspect(head(sort(itemsets, by = 'support'), 10))
+```
+
+Kolejny krok - agregacja transakcji według okna. 
+
+## Grupowanie
+Z braku sensownego pomysłu wykonania, porzucamy ideę agregacji według okna, samo grupowanie według patient id musi wystarczyć.
+```{r}
+```
