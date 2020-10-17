@@ -29,7 +29,7 @@ df <- read_excel(tf)
 
 ## Preprocess
 ### Set missing PATIENT_ID parameters
-```{r}
+```{r set-missing-patient-id}
 cur <- 0
 for (row in 1:nrow(df)){
   if(is.na(df[row, "PATIENT_ID"])) {
@@ -42,22 +42,28 @@ for (row in 1:nrow(df)){
 ```
 
 ## Print summary
-```{r}
+```{r summary}
 sapply(df, summary)
 ```
 
 ## "Transakcje" badań
 Zauważamy, że dużo NA, wynika to z tego, że badania są rozrzucone.
 Badanie zbiorów, czy któreś są częstsze niż inne.
-```{r}
+```{r transactions}
 # tr.tf - transactions - TRUE/FALSE
 tr.tf <- sapply(df[,-(1:7)], function(x) !is.na(x))
 transactions <- apply(tr.tf, 1, function(x) colnames(tr.tf)[x])
-uni.sets <- unique(transactions)
 # tr.str <- sapply(transactions, function(x) paste(x, collapse=", "))
 ```
 
-```{r}
+Ilość unikalnych transakcji
+```{r unique-transactions}
+uni.sets <- unique(transactions)
+length(uni.sets)
+```
+
+```{r shorten transactions string display}
+# to be removed
 parse_transaction <- function(arg) {
   if(length(arg) <= 3) {
     return(paste(arg, collapse=", "))
@@ -68,28 +74,20 @@ parse_transaction <- function(arg) {
   }
 }
 tr.str <- sapply(transactions, parse_transaction)
-```
-
-Ilość unikalnych transakcji
-```{r}
-length(uni.sets)
-```
-
-Najczęstsze transakcje
-```{r}
 tab <- table(tr.str)
 tab[tab == max(tab)]
 ```
 
-Należałoby znaleźć maksymalne zbiory częste o wysokim support.  
+Szukamy maksymalnych domkniętych zbiorów częstych - sprawdzamy czy badania występują w grupach.
 
-```{r}
-itemsets <- apriori(tr.tf, parameter = list(target="closed frequent itemsets", support=.1, minlen=1, maxlen=30, maxtime=60))
-itemsets
+```{r apriori}
+itemsets <- apriori(tr.tf, parameter = list(target="closed frequent itemsets", support=.05, minlen=1, maxlen=30, maxtime=60))
+mc_itemsets <- itemsets[is.maximal(itemsets)]
+mc_itemsets
 ```
 
-```{r}
-inspect(head(sort(itemsets, by = 'support'), 10))
+```{r inspect itemsets}
+inspect(head(sort(mc_itemsets, by = 'support'), 10))
 ```
 
 Kolejny krok - agregacja transakcji według okna. 
