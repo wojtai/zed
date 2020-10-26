@@ -1,20 +1,25 @@
 ---
 title: "Report"
+author: "Me"
+date: "Today"
 knit: (function(input_file, encoding) {
   out_dir <- 'html';
   rmarkdown::render(input_file, encoding=encoding, output_file=file.path(dirname(input_file), out_dir, 'index.html'))
  })
 
 
-output: html_document
+output:
+  html_document:
+    toc: true
+    toc_float: true
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-```{r libraries}
-library(readxl)
+```{r libraries, message=FALSE}
+library(openxlsx)
 library(httr)
 library(arules)
 ```
@@ -24,22 +29,11 @@ library(arules)
 # https://stackoverflow.com/a/41368947
 url <- "http://www.cs.put.poznan.pl/dbrzezinski/teaching/zed/wuhan_blood_sample_data_Jan_Feb_2020.xlsx"
 GET(url, write_disk(tf <- tempfile(fileext = ".xlsx")))
-df <- read_excel(tf)
+df <- read.xlsx(tf, fillMergedCells = TRUE)
 ```
 
 ## Preprocess
-### Set missing PATIENT_ID parameters
-```{r set-missing-patient-id}
-cur <- 0
-for (row in 1:nrow(df)){
-  if(is.na(df[row, "PATIENT_ID"])) {
-    df[row, "PATIENT_ID"] <- cur
-  }
-  else {
-    cur <- df[row, "PATIENT_ID"]
-  }
-}
-```
+TODO
 
 ## Print summary
 ```{r summary}
@@ -60,22 +54,6 @@ Ilość unikalnych transakcji
 ```{r unique-transactions}
 uni.sets <- unique(transactions)
 length(uni.sets)
-```
-
-```{r shorten transactions string display}
-# to be removed
-parse_transaction <- function(arg) {
-  if(length(arg) <= 3) {
-    return(paste(arg, collapse=", "))
-  } else {
-    beg <- paste(arg[1:2], collapse=", ");
-    rem = length(arg) - 2;
-    return(paste(beg, "and", rem, "more"))
-  }
-}
-tr.str <- sapply(transactions, parse_transaction)
-tab <- table(tr.str)
-tab[tab == max(tab)]
 ```
 
 Szukamy maksymalnych domkniętych zbiorów częstych - sprawdzamy czy badania występują w grupach.
