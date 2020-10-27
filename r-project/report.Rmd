@@ -19,17 +19,20 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ```{r libraries, message=FALSE}
-library(openxlsx)
+library(readxl)
 library(httr)
 library(arules)
+library(tidyr)
+library(dplyr)
+library(lubridate)
 ```
 # Data preprocessing
 ## Read Data
-```{r read-data}
+```{r read-data, message=FALSE}
 # https://stackoverflow.com/a/41368947
 url <- "http://www.cs.put.poznan.pl/dbrzezinski/teaching/zed/wuhan_blood_sample_data_Jan_Feb_2020.xlsx"
 GET(url, write_disk(tf <- tempfile(fileext = ".xlsx")))
-df <- read.xlsx(tf, fillMergedCells = TRUE)
+df <- read_excel(tf) %>% fill(PATIENT_ID)
 ```
 
 ## Preprocess
@@ -39,6 +42,11 @@ TODO
 ```{r summary}
 sapply(df, summary)
 ```
+## Wiersze bez RE_DATE
+```{r}
+all(is.na(df[is.na(df$RE_DATE), -c(1,3:7)]))
+df = df[!is.na(df$RE_DATE),]
+```
 
 ## "Transakcje" badań
 Zauważamy, że dużo NA, wynika to z tego, że badania są rozrzucone.
@@ -47,7 +55,6 @@ Badanie zbiorów, czy któreś są częstsze niż inne.
 # tr.tf - transactions - TRUE/FALSE
 tr.tf <- sapply(df[,-(1:7)], function(x) !is.na(x))
 transactions <- apply(tr.tf, 1, function(x) colnames(tr.tf)[x])
-# tr.str <- sapply(transactions, function(x) paste(x, collapse=", "))
 ```
 
 Ilość unikalnych transakcji
@@ -73,4 +80,6 @@ Kolejny krok - agregacja transakcji według okna.
 ## Grupowanie
 Z braku sensownego pomysłu wykonania, porzucamy ideę agregacji według okna, samo grupowanie według patient id musi wystarczyć.
 ```{r}
+df %>% mutate(RE_DATE = floor_date(RE_DATE, '12 h')) %>% group_by(PATIENT_ID, RE_DATE)
+# TODO
 ```
