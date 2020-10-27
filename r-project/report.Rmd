@@ -80,6 +80,8 @@ Kolejny krok - agregacja transakcji według okna.
 ## Grupowanie
 Z braku sensownego pomysłu wykonania, porzucamy ideę agregacji według okna, samo grupowanie według patient id musi wystarczyć.
 ```{r}
-df %>% mutate(RE_DATE = floor_date(RE_DATE, '12 h')) %>% group_by(PATIENT_ID, RE_DATE)
+df <- df %>% mutate(RE_DATE = floor_date(RE_DATE, '12 h')) %>% group_by(PATIENT_ID, RE_DATE) %>% fill(everything()) %>% summarise_all(last) %>% ungroup()
 # TODO
+dim(df)
+sapply(df, summary)
 ```
