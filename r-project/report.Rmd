@@ -25,28 +25,108 @@ library(arules)
 library(tidyr)
 library(dplyr)
 library(lubridate)
+library(stringr)
 ```
-# Data preprocessing
-## Read Data
-```{r read-data, message=FALSE}
+# Przetwarzanie zbioru danych
+## Odczyt danych
+Odczyt danych przeprowdzony jest bezośrednio ze strony, aby zapewenić stałą wartość początkową dla każdego uruchomienia.
+Dodatkowo uzupełniane są brakujące dane identyfikatory pacjentów ```PATIENT_ID```. Wartości brakujące wynikają ze sposobu przetwarzania scalonych komórek pliku źródłowego.
+```{r read-data, message=FALSE, results='hide'}
 # https://stackoverflow.com/a/41368947
 url <- "http://www.cs.put.poznan.pl/dbrzezinski/teaching/zed/wuhan_blood_sample_data_Jan_Feb_2020.xlsx"
 GET(url, write_disk(tf <- tempfile(fileext = ".xlsx")))
 df <- read_excel(tf) %>% fill(PATIENT_ID)
 ```
 
-## Preprocess
-TODO
+## Atrybuty zbioru danych
+Surowy zbiór danych zawiera `r ncol(df)` atrybutów i `r nrow(df)` wierszy.  
 
-## Print summary
+### Atrybuty ogólne
+Pierwszych siedem kolumn to atrybuty ogólne, reprezentują następująco:
+  
+* PATEINT_ID - sztuczny identyfikator pacjenta
+* RE_DATE - najpewniej jest to data wprowadzenia wyniku badań próbki krwi do systemu
+* age - wiek pacjenta
+* gender - płeć pacjenta, przyjmuje wartość 1 (...) albo 2 (...)
+* Admission time - czas przyjęcia pacjenta do szpitala
+* Discharge time - czas zakończenia leczenia (w skutek wypisu pacjenta lub jego śmierci)
+* outcome - rezultat, przyjmuje wartość 0 jeżeli pacjent zmarł, lub wartość 1 jeżeli został wyleczony.
+
+Nazwy wyżej wymienionych atrybutów zostaną przeformatowane, będą pisane wielkimi literami, a ewentualne spacje będą zamieniane na znak podkreślinka `_`, w ten sposób atrbuty ogólne będą łatwo odróżnialne od pozostałych atrybutów.
+
+```{r rename top 7 columns}
+df <- df %>% rename_with(~ toupper(gsub(" ", "_", .x, fixed = TRUE)), 1:7)
+```
+
+Poniżej można zapoznać się z analizą wartości dla atrybutów ogólnych.
+
+```{r top-summary}
+summary(df[,1:7])
+```
+```{r patients count init}
+length(unique(df$PATIENT_ID))
+```
+```{r}
+df %>% select(1:7) %>% select(-RE_DATE) %>% 
+  group_by(PATIENT_ID) %>% summarise_all(last) %>% ungroup() %>% 
+  select(-PATIENT_ID) %>% group_by(OUTCOME) %>% 
+  summarise_all(mean)
+# TODO timediff (HOSPITALIZATION_DURATION)
+# TODO GENDER factor
+# TODO OUTCOME factor
+```
+
+
+W powyższej tabeli zauważono wystąpienia wartości brakującyc dla kolumny `RE_DATE`. 
+Szybkie sprawdzenie wykazuje, że dla wierszy, gdzie nie ma atrybut `RE_DATE` przyjmuje wartość 'NA', wartości wszystkich atrybutów pochodzących z badań krwi, równiez przyjmują wartość 'NA'.
+```{r empty rows check}
+all(sapply(df[is.na(df$RE_DATE), -c(1,3:7)], is.na))
+```
+Co jest podstawą do usunięcia tych wierszy ze zbioru danych.
+```{r clear-empty}
+df = df[!is.na(df$RE_DATE),]
+```
+Po tej zmianie w zbiorze pozostało `{r} nrow(df)` wierszy.
+
+Co istotne, 14 usuniętych wierszy, opdpowiada takiej samej ilości usuniętych pacjentów.
+```{r patients count}
+length(unique(df$PATIENT_ID))
+```
+
+### Wyniki badań
+Pozostałe `r ncol(df)-7` kolumn zawiera wartości atrybutów, które reprezentują rodzaje miar zebranych podczas każdego badania.
+
+```{r list column names of reamining parameters}
+str_sort(colnames(df[,-(1:7)]))
+```
+```{r renaming attributes names}
+df <- df %>%
+  rename("NT-proBNP" = "Amino-terminal brain natriuretic peptide precursor(NT-proBNP)") %>%
+  rename_with(~str_c(str_replace(.x, "\\(%\\)", ""), "_percent"), contains("(%)")) %>%
+  rename_with(~str_replace(.x, "\\(#\\)", "")) %>%
+  rename_with(tolower, matches("^[[:upper:]]{1}[[:lower:]]+", ignore.case = FALSE)) %>%
+  rename_with(~str_replace_all(.x, "[ |-]", "_"))
+str_sort(colnames(df[,-(1:7)]))
+```
+
+
+```{r historam of number of not NA values per row}
+row.counts <- rowSums(sapply(df[,-(1:7)], function(x) !is.na(x)))
+summary(row.counts)
+```
+
+```{r hist 1}
+hist(row.counts, breaks=(ncol(df)-7))
+```
+
+
+
+
+## Podsumowanie zmian
 ```{r summary}
 sapply(df, summary)
 ```
-## Wiersze bez RE_DATE
-```{r}
-all(is.na(df[is.na(df$RE_DATE), -c(1,3:7)]))
-df = df[!is.na(df$RE_DATE),]
-```
+
 
 ## "Transakcje" badań
 Zauważamy, że dużo NA, wynika to z tego, że badania są rozrzucone.
@@ -79,9 +159,44 @@ Kolejny krok - agregacja transakcji według okna.
 
 ## Grupowanie
 Z braku sensownego pomysłu wykonania, porzucamy ideę agregacji według okna, samo grupowanie według patient id musi wystarczyć.
-```{r}
-df <- df %>% mutate(RE_DATE = floor_date(RE_DATE, '12 h')) %>% group_by(PATIENT_ID, RE_DATE) %>% fill(everything()) %>% summarise_all(last) %>% ungroup()
-# TODO
-dim(df)
-sapply(df, summary)
+```{r g1}
+g1 <- df %>% mutate(RE_DATE = floor_date(RE_DATE, '12 h')) %>% group_by(PATIENT_ID, RE_DATE) %>% fill(everything()) %>% summarise_all(last) %>% ungroup()
+row.counts.g1 <- rowSums(sapply(g1[,-(1:7)], function(x) !is.na(x)))
+hist(row.counts.g1, breaks=(ncol(g1)-7))
+
+```
+
+```{r g2}
+g2 <- df %>% mutate(RE_DATE = floor_date(RE_DATE, '1 day')) %>% group_by(PATIENT_ID, RE_DATE) %>% fill(everything()) %>% summarise_all(last) %>% ungroup()
+row.counts.g2 <- rowSums(sapply(g2[,-(1:7)], function(x) !is.na(x)))
+hist(row.counts.g2, breaks=(ncol(g2)-7))
+
+```
+
+```{r g3}
+g3 <- df %>% mutate(RE_DATE = floor_date(RE_DATE, '2 days')) %>% group_by(PATIENT_ID, RE_DATE) %>% fill(everything()) %>% summarise_all(last) %>% ungroup()
+row.counts.g3 <- rowSums(sapply(g3[,-(1:7)], function(x) !is.na(x)))
+hist(row.counts.g3, breaks=(ncol(g3)-7))
+
+```
+
+```{r g4}
+g4 <- df %>% mutate(RE_DATE = floor_date(RE_DATE, '4 days')) %>% group_by(PATIENT_ID, RE_DATE) %>% fill(everything()) %>% summarise_all(last) %>% ungroup()
+row.counts.g4 <- rowSums(sapply(g4[,-(1:7)], function(x) !is.na(x)))
+hist(row.counts.g4, breaks=(ncol(g4)-7))
+
+```
+
+```{r g5}
+g5 <- df %>% mutate(RE_DATE = floor_date(RE_DATE, '8 days')) %>% group_by(PATIENT_ID, RE_DATE) %>% fill(everything()) %>% summarise_all(last) %>% ungroup()
+row.counts.g5 <- rowSums(sapply(g5[,-(1:7)], function(x) !is.na(x)))
+hist(row.counts.g5, breaks=(ncol(g5)-7))
+
+```
+
+```{r g6}
+g6 <- df %>% group_by(PATIENT_ID) %>% fill(everything()) %>% summarise_all(last) %>% ungroup()
+row.counts.g6 <- rowSums(sapply(g6[,-(1:7)], function(x) !is.na(x)))
+hist(row.counts.g6, breaks=(ncol(g6)-7))
+
 ```
