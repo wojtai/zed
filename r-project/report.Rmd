@@ -47,7 +47,7 @@ Pierwszych siedem kolumn to atrybuty ogólne, reprezentują następująco:
 * PATEINT_ID - sztuczny identyfikator pacjenta
 * RE_DATE - najpewniej jest to data wprowadzenia wyniku badań próbki krwi do systemu
 * age - wiek pacjenta
-* gender - płeć pacjenta, przyjmuje wartość 1 (...) albo 2 (...)
+* gender - płeć pacjenta, przyjmuje wartość 1 albo 2, ale z poisu zbioru danych nie wynika wprost, które oznaczenie jest przypisane do której płci
 * Admission time - czas przyjęcia pacjenta do szpitala
 * Discharge time - czas zakończenia leczenia (w skutek wypisu pacjenta lub jego śmierci)
 * outcome - rezultat, przyjmuje wartość 0 jeżeli pacjent został wyleczony, lub wartość 1 jeżeli zmarł.
@@ -58,29 +58,51 @@ Nazwy wyżej wymienionych atrybutów zostaną przeformatowane, będą pisane wie
 df <- df %>% rename_with(~ toupper(gsub(" ", "_", .x, fixed = TRUE)), 1:7)
 ```
 
-Poniżej można zapoznać się z analizą wartości dla atrybutów ogólnych.
+Pola `GENDER` i `OUTCOME` zostaną dodatkowo zmienione na typ `factor` - z typu numerycznego zamienione zostaną na zmienne nominalne.
+Do tego trzeba przeprowadzić identyfikację typu płci.
 
-```{r top-summary}
-summary(df[,1:7])
+Wartości płci nie są jawnie opisane, w artykule źródłowym została natomiast podana proporcja pacjentów danej płci, co powinno umożliwić okreslenie właściwego przypisania.
+```{r}
+table(df %>% group_by(PATIENT_ID) %>% summarise_all(last) %>% select(GENDER))
 ```
+
+Wniosek:
+* Mężczyźni - wartość `1`
+* Kobiety - wartość `2`
+
+```{r factorize gender}
+df <- df %>% mutate(across("GENDER", ~factor(., levels=c(1,2), labels=c("MALE", "FEMALE")))) %>%
+  mutate(across("OUTCOME", ~factor(., levels=c(0,1), labels=c("CURED","DECEASED"))))
+```
+
+Poniżej można zapoznać się z analizą wartości dla atrybutów ogólnych.
+Wartość atrybutu `RE_DATE` ma unikalną wartość dla kazdego wiersza.
+
+```{r re_date summary}
+summary(df$RE_DATE)
+```
+Pozostałe z atrybtów ogólnych, są wspólne dla każdego pacjenta, zastosowano transformację do zniwelowania skutków duplikacji.
+
+```{r top summary}
+summary(df %>% select(c(1,3:7)) %>% group_by(PATIENT_ID) %>% summarise_all(last) )
+```
+Dodatkowo, dla pewności wyznaczamy liczbę pacjentów.
+
 ```{r patients count init}
 length(unique(df$PATIENT_ID))
 ```
+
+TODO opis
+
 ```{r}
 df %>% select(1:7) %>% select(-RE_DATE) %>% 
   group_by(PATIENT_ID) %>% summarise_all(last) %>% ungroup() %>% 
   mutate(HOSPITALIZATION_TIME = difftime(ceiling_date(DISCHARGE_TIME, "1 day"), floor_date(ADMISSION_TIME, "1 day"), unit="days")) %>%
   select(-PATIENT_ID, -ADMISSION_TIME, -DISCHARGE_TIME) %>% group_by(OUTCOME, GENDER) %>% 
   summarise_all(median)
-# TODO GENDER factor
-# TODO OUTCOME factor
 ```
 
-Identyfikacja oznaczenia płci
-```{r}
-table(df %>% group_by(PATIENT_ID) %>% summarise_all(last) %>% select(GENDER))
-```
-
+TODO osobna analiza outcome vs wiek
 
 ### Usuwanie wierszy, które nie zawierają danych z badań
 
@@ -114,7 +136,7 @@ TODO komentarz do usunięcia
 ### Stworzenie dodatkowej cechy
 
 TODO days to outcome
-
+TODO days from admission
 
 ### Wyniki badań
 Pozostałe `r ncol(df)-7` kolumn zawiera wartości atrybutów, które reprezentują rodzaje miar zebranych podczas każdego badania.
@@ -173,6 +195,9 @@ inspect(head(sort(mc_itemsets, by = 'support'), 10))
 
 TODO wnioski ze zbiorów częstych
 
+
+Wyniki różnych testów prawdopodobnie pojawiały się w systemie o różnych porach, dlatego można je razem agregować.
+
 ### Grupowanie wyników badań
 
 TODO Analiza ilości badań przeprowadzonych jednemu pacjentowi. 
@@ -182,9 +207,15 @@ rc.gb.patient_id <- rowSums(sapply(gb.patient_id[,-(1:7)], function(x) !is.na(x)
 hist(rc.gb.patient_id, breaks=(ncol(gb.patient_id)-7))
 
 ```
+
+
+
 ```{r group by patient id summary}
 summary(rc.gb.patient_id)
 ```
+
+
+
 ```{r number of missing values in each column}
 colSums(sapply(gb.patient_id[,-(1:7)], is.na))
 ```
