@@ -50,7 +50,7 @@ Pierwszych siedem kolumn to atrybuty ogólne, reprezentują następująco:
 * gender - płeć pacjenta, przyjmuje wartość 1 (...) albo 2 (...)
 * Admission time - czas przyjęcia pacjenta do szpitala
 * Discharge time - czas zakończenia leczenia (w skutek wypisu pacjenta lub jego śmierci)
-* outcome - rezultat, przyjmuje wartość 0 jeżeli pacjent zmarł, lub wartość 1 jeżeli został wyleczony.
+* outcome - rezultat, przyjmuje wartość 0 jeżeli pacjent został wyleczony, lub wartość 1 jeżeli zmarł.
 
 Nazwy wyżej wymienionych atrybutów zostaną przeformatowane, będą pisane wielkimi literami, a ewentualne spacje będą zamieniane na znak podkreślinka `_`, w ten sposób atrbuty ogólne będą łatwo odróżnialne od pozostałych atrybutów.
 
@@ -69,36 +69,60 @@ length(unique(df$PATIENT_ID))
 ```{r}
 df %>% select(1:7) %>% select(-RE_DATE) %>% 
   group_by(PATIENT_ID) %>% summarise_all(last) %>% ungroup() %>% 
-  select(-PATIENT_ID) %>% group_by(OUTCOME) %>% 
-  summarise_all(mean)
-# TODO timediff (HOSPITALIZATION_DURATION)
+  mutate(HOSPITALIZATION_TIME = difftime(ceiling_date(DISCHARGE_TIME, "1 day"), floor_date(ADMISSION_TIME, "1 day"), unit="days")) %>%
+  select(-PATIENT_ID, -ADMISSION_TIME, -DISCHARGE_TIME) %>% group_by(OUTCOME, GENDER) %>% 
+  summarise_all(median)
 # TODO GENDER factor
 # TODO OUTCOME factor
 ```
 
+Identyfikacja oznaczenia płci
+```{r}
+table(df %>% group_by(PATIENT_ID) %>% summarise_all(last) %>% select(GENDER))
+```
+
+
+### Usuwanie wierszy, które nie zawierają danych z badań
 
 W powyższej tabeli zauważono wystąpienia wartości brakującyc dla kolumny `RE_DATE`. 
 Szybkie sprawdzenie wykazuje, że dla wierszy, gdzie nie ma atrybut `RE_DATE` przyjmuje wartość 'NA', wartości wszystkich atrybutów pochodzących z badań krwi, równiez przyjmują wartość 'NA'.
 ```{r empty rows check}
 all(sapply(df[is.na(df$RE_DATE), -c(1,3:7)], is.na))
 ```
+
+```{r}
+df %>% filter(is.na(RE_DATE)) %>% group_by(PATIENT_ID) %>% summarise_all(last) %>%
+  mutate(HOSPITALIZATION_TIME = difftime(ceiling_date(DISCHARGE_TIME, "1 day"), floor_date(ADMISSION_TIME, "1 day"), unit="days")) %>%
+  select(OUTCOME, HOSPITALIZATION_TIME) %>%
+  summarise(HOSPITALIZATION_TIME = quantile(HOSPITALIZATION_TIME, c(0, 0.25, 0.5, 0.75,1)), quantile = c("min", "1st", "2nd", "3rd", "max"))
+```
+
 Co jest podstawą do usunięcia tych wierszy ze zbioru danych.
+
 ```{r clear-empty}
 df = df[!is.na(df$RE_DATE),]
 ```
+
 Po tej zmianie w zbiorze pozostało `{r} nrow(df)` wierszy.
 
 Co istotne, 14 usuniętych wierszy, opdpowiada takiej samej ilości usuniętych pacjentów.
 ```{r patients count}
 length(unique(df$PATIENT_ID))
 ```
+TODO komentarz do usunięcia
+
+### Stworzenie dodatkowej cechy
+
+TODO days to outcome
+
 
 ### Wyniki badań
 Pozostałe `r ncol(df)-7` kolumn zawiera wartości atrybutów, które reprezentują rodzaje miar zebranych podczas każdego badania.
 
-```{r list column names of reamining parameters}
-str_sort(colnames(df[,-(1:7)]))
-```
+Nazwy kolumn zostały poddane następującym transformacjom:
+
+* TODO
+
 ```{r renaming attributes names}
 df <- df %>%
   rename("NT-proBNP" = "Amino-terminal brain natriuretic peptide precursor(NT-proBNP)") %>%
@@ -109,94 +133,65 @@ df <- df %>%
 str_sort(colnames(df[,-(1:7)]))
 ```
 
+Wstępnę analiza danych sugeruje wskazuje, że wiele wartości atrybutów jest oznaczona wartością 'NA'.
+W poniższych blokach kodu, wyliczana jest liczba elementów, które mają wartość inną niż 'NA' dla każdego wiersza.
 
 ```{r historam of number of not NA values per row}
 row.counts <- rowSums(sapply(df[,-(1:7)], function(x) !is.na(x)))
 summary(row.counts)
 ```
 
-```{r hist 1}
+```{r hist 1, echo=FALSE}
 hist(row.counts, breaks=(ncol(df)-7))
 ```
+TODO analiza i wnioski
+
+* prawie połowa rekordów ma zaledwie jeden wynik badania.
+* co ciekawe, druga i trzecia pod względem liczości grupa rekordów ma odpowiednio po 24 i 23 elementy.
+* Można dokonać analizy, czy te grupy powstają losowo, czy mają jakiś wspólny podzbiór -> analiza zbiorów częstych.
 
 
-
-
-## Podsumowanie zmian
-```{r summary}
-sapply(df, summary)
-```
-
-
-## "Transakcje" badań
+## Zbiory częste badań
 Zauważamy, że dużo NA, wynika to z tego, że badania są rozrzucone.
 Badanie zbiorów, czy któreś są częstsze niż inne.
 ```{r transactions}
-# tr.tf - transactions - TRUE/FALSE
-tr.tf <- sapply(df[,-(1:7)], function(x) !is.na(x))
-transactions <- apply(tr.tf, 1, function(x) colnames(tr.tf)[x])
+transactions <- sapply(df[,-(1:7)], function(x) !is.na(x))
 ```
 
 Ilość unikalnych transakcji
-```{r unique-transactions}
-uni.sets <- unique(transactions)
-length(uni.sets)
+```{r unique transactions count}
+length(unique(apply(transactions, 1, function(x) which(x))))
 ```
 
 Szukamy maksymalnych domkniętych zbiorów częstych - sprawdzamy czy badania występują w grupach.
 
 ```{r apriori}
-itemsets <- apriori(tr.tf, parameter = list(target="closed frequent itemsets", support=.05, minlen=1, maxlen=30, maxtime=60))
+itemsets <- apriori(transactions, parameter = list(target="closed frequent itemsets", support=.05, minlen=1, maxlen=30, maxtime=60))
 mc_itemsets <- itemsets[is.maximal(itemsets)]
-mc_itemsets
-```
-
-```{r inspect itemsets}
 inspect(head(sort(mc_itemsets, by = 'support'), 10))
 ```
 
-Kolejny krok - agregacja transakcji według okna. 
+TODO wnioski ze zbiorów częstych
 
-## Grupowanie
-Z braku sensownego pomysłu wykonania, porzucamy ideę agregacji według okna, samo grupowanie według patient id musi wystarczyć.
-```{r g1}
-g1 <- df %>% mutate(RE_DATE = floor_date(RE_DATE, '12 h')) %>% group_by(PATIENT_ID, RE_DATE) %>% fill(everything()) %>% summarise_all(last) %>% ungroup()
-row.counts.g1 <- rowSums(sapply(g1[,-(1:7)], function(x) !is.na(x)))
-hist(row.counts.g1, breaks=(ncol(g1)-7))
+### Grupowanie wyników badań
 
+TODO Analiza ilości badań przeprowadzonych jednemu pacjentowi. 
+```{r group by patient id}
+gb.patient_id <- df %>% group_by(PATIENT_ID) %>% fill(everything()) %>% summarise_all(last)
+rc.gb.patient_id <- rowSums(sapply(gb.patient_id[,-(1:7)], function(x) !is.na(x)))
+hist(rc.gb.patient_id, breaks=(ncol(gb.patient_id)-7))
+
+```
+```{r group by patient id summary}
+summary(rc.gb.patient_id)
+```
+```{r number of missing values in each column}
+colSums(sapply(gb.patient_id[,-(1:7)], is.na))
 ```
 
 ```{r g2}
 g2 <- df %>% mutate(RE_DATE = floor_date(RE_DATE, '1 day')) %>% group_by(PATIENT_ID, RE_DATE) %>% fill(everything()) %>% summarise_all(last) %>% ungroup()
 row.counts.g2 <- rowSums(sapply(g2[,-(1:7)], function(x) !is.na(x)))
 hist(row.counts.g2, breaks=(ncol(g2)-7))
-
 ```
 
-```{r g3}
-g3 <- df %>% mutate(RE_DATE = floor_date(RE_DATE, '2 days')) %>% group_by(PATIENT_ID, RE_DATE) %>% fill(everything()) %>% summarise_all(last) %>% ungroup()
-row.counts.g3 <- rowSums(sapply(g3[,-(1:7)], function(x) !is.na(x)))
-hist(row.counts.g3, breaks=(ncol(g3)-7))
-
-```
-
-```{r g4}
-g4 <- df %>% mutate(RE_DATE = floor_date(RE_DATE, '4 days')) %>% group_by(PATIENT_ID, RE_DATE) %>% fill(everything()) %>% summarise_all(last) %>% ungroup()
-row.counts.g4 <- rowSums(sapply(g4[,-(1:7)], function(x) !is.na(x)))
-hist(row.counts.g4, breaks=(ncol(g4)-7))
-
-```
-
-```{r g5}
-g5 <- df %>% mutate(RE_DATE = floor_date(RE_DATE, '8 days')) %>% group_by(PATIENT_ID, RE_DATE) %>% fill(everything()) %>% summarise_all(last) %>% ungroup()
-row.counts.g5 <- rowSums(sapply(g5[,-(1:7)], function(x) !is.na(x)))
-hist(row.counts.g5, breaks=(ncol(g5)-7))
-
-```
-
-```{r g6}
-g6 <- df %>% group_by(PATIENT_ID) %>% fill(everything()) %>% summarise_all(last) %>% ungroup()
-row.counts.g6 <- rowSums(sapply(g6[,-(1:7)], function(x) !is.na(x)))
-hist(row.counts.g6, breaks=(ncol(g6)-7))
-
-```
