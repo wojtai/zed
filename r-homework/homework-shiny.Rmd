@@ -71,7 +71,8 @@ renderPlot({
     geom_line(aes(y=child, colour="child")) + 
     geom_line(aes(y=adult, colour="adult")) +
     geom_line(aes(y=elderly, colour="elderly")) + 
-    labs(x = "Year", y = "Cases", color = "Legend")
+    labs(x = "Year", y = "Cases", color = "Legend") +
+    ggtitle(input$current_country)
 })
 ```
 
