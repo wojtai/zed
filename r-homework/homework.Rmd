@@ -1,0 +1,75 @@
+---
+title: "Homework - tuberculosis"
+author: "Wojciech Taisner"
+date: "11/4/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libs}
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+```
+
+```{r data, cache=TRUE, include=FALSE}
+library(EDAWR)
+df <- tb %>% replace_na(list(child=0, adult=0, elderly=0)) %>% mutate(country=factor(country), sex=factor(sex), year=factor(year))
+```
+
+## Data summary
+```{r data summary}
+summary(df)
+```
+
+## Number of cases per sex
+```{r by gender}
+knitr::kable(
+df %>% 
+  rowwise() %>% mutate(total = sum(child, adult, elderly)) %>%
+  group_by(sex) %>% summarize(total_sum=sum(total), .groups = 'drop')
+)
+
+```
+
+## Number of cases per age per year
+```{r by age and year}
+by_age_and_year <- df %>% group_by(year) %>%
+  summarize(child=sum(child), adult=sum(adult), elderly=sum(elderly), .groups = 'drop')
+```
+
+```{r by age and year plot}
+ggplot(by_age_and_year, aes(year, group=1)) + 
+  geom_line(aes(y=child, colour="child")) + 
+  geom_line(aes(y=adult, colour="adult")) +
+  geom_line(aes(y=elderly, colour="elderly")) + 
+  labs(x = "Year", y = "Cases", color = "Legend")
+```
+
+
+## Number of cases per age per year for each country
+
+```{r plotttsssssss, echo=FALSE}
+
+print_plot <- function(df, grp) {
+  print(
+    ggplot(df, aes(year, group=1)) + 
+    geom_line(aes(y=child, colour="child")) + 
+    geom_line(aes(y=adult, colour="adult")) +
+    geom_line(aes(y=elderly, colour="elderly")) + 
+    labs(x = "Year", y = "Cases", color = "Legend") +
+    ggtitle(grp$country[1])
+  )
+}
+
+df %>% group_by(country, year) %>%
+  summarize(child=sum(child), adult=sum(adult), elderly=sum(elderly), .groups = 'drop') %>%
+  ungroup() %>%
+  group_by(country) %>% group_walk(print_plot)
+
+```
+
