@@ -18,7 +18,7 @@ output:
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-```{r libraries, message=FALSE}
+```{r libraries, message=FALSE, echo=FALSE}
 library(readxl)
 library(httr)
 library(arules)
@@ -28,6 +28,7 @@ library(lubridate)
 library(stringr)
 library(ggplot2)
 ```
+
 # Przetwarzanie zbioru danych
 ## Odczyt danych
 Odczyt danych przeprowdzony jest bezośrednio ze strony, aby zapewenić stałą wartość początkową dla każdego uruchomienia.
@@ -41,6 +42,8 @@ df <- read_excel(tf) %>% fill(PATIENT_ID)
 
 ## Atrybuty zbioru danych
 Surowy zbiór danych zawiera `r ncol(df)` atrybutów i `r nrow(df)` wierszy.  
+
+TODO opisać podział na atrybuty ogólne i wyniki badań
 
 ### Atrybuty ogólne
 Pierwszych siedem kolumn to atrybuty ogólne, reprezentują następująco:
@@ -70,7 +73,7 @@ col.names = c("GENDER", "count")
 )
 ```
 
-Wniosek:  c
+Wniosek:  
 * Mężczyźni - wartość `1`
 * Kobiety - wartość `2`
 
@@ -131,6 +134,24 @@ hospitalization_times %>%
 
 TODO opis
 
+```{r}
+dto <- df %>% filter(!is.na(RE_DATE)) %>% 
+  mutate(RE_DATE = floor_date(RE_DATE, "1 day")) %>% 
+  group_by(PATIENT_ID, RE_DATE) %>% 
+  summarize_all(last) %>% 
+  ungroup() %>% 
+  mutate(DAYS_TO_OUTCOME = difftime(floor_date(DISCHARGE_TIME, "1 day"), RE_DATE, unit="days"))
+dto %>% summarise(DAYS_TO_OUTCOME = quantile(DAYS_TO_OUTCOME, c(0, 0.25, 0.5, 0.75,1)), quantile = c("min", "1st", "2nd", "3rd", "max"))
+```
+
+```{r}
+hist(as.numeric(dto$DAYS_TO_OUTCOME, unit="days"), breaks=38, freq=FALSE)
+```
+```{r}
+df %>% filter(RE_DATE > DISCHARGE_TIME) %>% count(PATIENT_ID)
+```
+
+
 ### Wyniki badań
 Pozostałe `r ncol(df)-7` kolumn zawiera wartości atrybutów, które reprezentują rodzaje miar zebranych podczas każdego badania.
 
@@ -147,10 +168,7 @@ df <- df %>%
   rename_with(~str_replace_all(.x, "[ |-]", "_"))
 str_sort(colnames(df[,-(1:7)]))
 ```
-### Dodatkowe cechy
 
-* TODO days to outcome
-* TODO days from admission
 
 ## Czyszczenie zbioru danych
 
@@ -184,7 +202,7 @@ summary(row.counts)
 ```
 
 ```{r hist 1, echo=FALSE}
-hist(row.counts, breaks=(ncol(df)-7))
+hist(row.counts, breaks=(ncol(df)-7), xlab="Not empty elements in each record", main="")
 ```
 TODO analiza i wnioski
 
@@ -224,8 +242,7 @@ TODO Analiza ilości badań przeprowadzonych jednemu pacjentowi.
 ```{r group by patient id}
 gb.patient_id <- df %>% group_by(PATIENT_ID) %>% fill(everything()) %>% summarise_all(last)
 rc.gb.patient_id <- rowSums(sapply(gb.patient_id[,-(1:7)], function(x) !is.na(x)))
-hist(rc.gb.patient_id, breaks=(ncol(gb.patient_id)-7))
-
+hist(rc.gb.patient_id, breaks=(ncol(gb.patient_id)-7), xlab="Number of test categories per patient", main="")
 ```
 
 
@@ -264,23 +281,16 @@ ggplot(test_df, aes(x=threshold)) +
   geom_vline(xintercept=0.65, linetype = "longdash")
 ```
 
-```{r row counts patient data frame}
-patients_with_number_of_tests <- data.frame(PATIENT_ID = gb.patient_id$PATIENT_ID, number_of_tests = rc.gb.patient_id)
-total_tests_count <- ncol(df) - 7
-threshold <- 0.65
-patients_to_be_removed <-patients_with_number_of_tests %>% filter(number_of_tests < total_tests_count*threshold)
-patients_to_be_removed
-```
-
 ```{r remove poorly tested patients}
+threshold <- 0.65
+patients_to_be_removed <- n_tests %>% filter(number_of_tests < cols_cnt * threshold)
 df <- df %>% filter(!(PATIENT_ID %in% patients_to_be_removed$PATIENT_ID))
 ```
 
-```{r patients count 2}
-length(unique(df$PATIENT_ID))
-```
+Po usunięciu rekordów pacjentów, u których przeprowadzono mało badań, pozostało `r length(unique(df$PATIENT_ID))` unikalnych pacjentów.
 
-### Liczba brakujących wartości w każdej kolumnie
+
+### Brakujące wartości w kategoriach
 
 ```{r number of missing values in each column}
 gb.patient_id <- df %>% group_by(PATIENT_ID) %>% fill(everything()) %>% summarise_all(last)
@@ -289,11 +299,28 @@ sort(colSums(sapply(gb.patient_id[,-(1:7)], is.na)))
 )
 ```
 
+## Dodatkowe cechy
+
+* TODO days to outcome
+
 ## Ostateczny kształt zbioru
 
 ```{r g2}
-g2 <- df %>% mutate(RE_DATE = floor_date(RE_DATE, '1 day')) %>% group_by(PATIENT_ID, RE_DATE) %>% fill(everything()) %>% summarise_all(last) %>% ungroup()
+g2 <- df %>% 
+  mutate(RE_DATE = floor_date(RE_DATE, '1 day')) %>% 
+  group_by(PATIENT_ID, RE_DATE) %>% 
+  fill(everything()) %>% 
+  summarise_all(last) %>% 
+  ungroup()
 row.counts.g2 <- rowSums(sapply(g2[,-(1:7)], function(x) !is.na(x)))
 hist(row.counts.g2, breaks=(ncol(g2)-7))
 ```
 
+
+# Techniczne
+
+## Wszytkie użyte pakiety
+
+```{r}
+unique(c(.packages(), loadedNamespaces()))
+```
