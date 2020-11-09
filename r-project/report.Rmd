@@ -29,6 +29,10 @@ library(stringr)
 library(ggplot2)
 ```
 
+```{r utils, echo=FALSE}
+'%!in%' <- function(x,y)!('%in%'(x,y))
+```
+
 # Przetwarzanie zbioru danych
 ## Odczyt danych
 Odczyt danych przeprowdzony jest bezośrednio ze strony, aby zapewenić stałą wartość początkową dla każdego uruchomienia.
@@ -107,49 +111,30 @@ Liczba unikatowych identyfikatorów pacjentów wynosi `r length(unique(df$PATIEN
 Ta sekcja poświęcona jest analizie długości hospitalizacji poszczególnych grup pacjentów.
 
 ```{r, echo=FALSE}
-hospitalization_times <- df %>% select(1:7) %>% select(-RE_DATE) %>% 
+ht <- df %>% select(1:7) %>% select(-RE_DATE) %>% 
   group_by(PATIENT_ID) %>% summarise_all(last) %>% ungroup() %>% 
   mutate(HOSPITALIZATION_TIME = difftime(ceiling_date(DISCHARGE_TIME, "1 day"), floor_date(ADMISSION_TIME, "1 day"), unit="days"))
 
 knitr::kable(
-hospitalization_times %>% 
+ht %>% 
   summarise(HOSPITALIZATION_TIME = quantile(HOSPITALIZATION_TIME, c(0, 0.25, 0.5, 0.75,1)), quantile = c("min", "1st", "2nd", "3rd", "max"))
 )
 ```
 
 ```{r, echo=FALSE}
-hist(
-  sapply(hospitalization_times$HOSPITALIZATION_TIME, function(x) as.numeric(x, units="days")),
-  breaks=36, xlab="Hospitalization period [days]", main="Hitogram of Hospitalization period [days]")
+ggplot(ht, aes(HOSPITALIZATION_TIME)) + geom_histogram(binwidth = 1)
 ```
 
 ```{r, echo=FALSE}
 knitr::kable(
-hospitalization_times %>%
+ht %>%
   select(-PATIENT_ID, -ADMISSION_TIME, -DISCHARGE_TIME) %>% group_by(OUTCOME, GENDER) %>% 
   summarise_all(median)
 )
 ```
 
 
-TODO opis
 
-```{r}
-dto <- df %>% filter(!is.na(RE_DATE)) %>% 
-  mutate(RE_DATE = floor_date(RE_DATE, "1 day")) %>% 
-  group_by(PATIENT_ID, RE_DATE) %>% 
-  summarize_all(last) %>% 
-  ungroup() %>% 
-  mutate(DAYS_TO_OUTCOME = difftime(floor_date(DISCHARGE_TIME, "1 day"), RE_DATE, unit="days"))
-dto %>% summarise(DAYS_TO_OUTCOME = quantile(DAYS_TO_OUTCOME, c(0, 0.25, 0.5, 0.75,1)), quantile = c("min", "1st", "2nd", "3rd", "max"))
-```
-
-```{r}
-hist(as.numeric(dto$DAYS_TO_OUTCOME, unit="days"), breaks=38, freq=FALSE)
-```
-```{r}
-df %>% filter(RE_DATE > DISCHARGE_TIME) %>% count(PATIENT_ID)
-```
 
 
 ### Wyniki badań
@@ -184,7 +169,7 @@ all(sapply(df[is.na(df$RE_DATE), -c(1,3:7)], is.na))
 Fakt, że wiersze te są właściwie puste, jest podstawą do ich usunięcia ze zbioru.
 
 ```{r clear-empty}
-df = df[!is.na(df$RE_DATE),]
+df <- df[!is.na(df$RE_DATE),]
 ```
 
 Po tej zmianie w zbiorze pozostało `r nrow(df)` wierszy i `r length(unique(df$PATIENT_ID))` unikalnych identyfikatorów pacjentów.
@@ -196,14 +181,13 @@ TODO komentarz do usunięcia
 Wstępnę analiza danych sugeruje wskazuje, że wiele wartości atrybutów jest oznaczona wartością 'NA'.
 W poniższych blokach kodu, wyliczana jest liczba elementów, które mają wartość inną niż 'NA' dla każdego wiersza.
 
-```{r historam of number of not NA values per row}
-row.counts <- rowSums(sapply(df[,-(1:7)], function(x) !is.na(x)))
-summary(row.counts)
+```{r, echo=FALSE}
+ggplot(
+  df %>% rowwise() %>% mutate(categories=sum(!is.na(c_across(-(1:7))))),
+  aes(categories)
+) + geom_histogram(binwidth = 1)
 ```
 
-```{r hist 1, echo=FALSE}
-hist(row.counts, breaks=(ncol(df)-7), xlab="Not empty elements in each record", main="")
-```
 TODO analiza i wnioski
 
 * prawie połowa rekordów ma zaledwie jeden wynik badania.
@@ -240,17 +224,19 @@ Wyniki różnych testów prawdopodobnie pojawiały się w systemie o różnych p
 
 TODO Analiza ilości badań przeprowadzonych jednemu pacjentowi. 
 ```{r group by patient id}
-gb.patient_id <- df %>% group_by(PATIENT_ID) %>% fill(everything()) %>% summarise_all(last)
-rc.gb.patient_id <- rowSums(sapply(gb.patient_id[,-(1:7)], function(x) !is.na(x)))
-hist(rc.gb.patient_id, breaks=(ncol(gb.patient_id)-7), xlab="Number of test categories per patient", main="")
+patient_last_results <- df %>% group_by(PATIENT_ID) %>% fill(everything()) %>% summarise_all(last)
+patient_last_results_count <- patient_last_results %>% 
+  rowwise() %>% 
+  mutate(number_of_tests=sum(!is.na(c_across(-(1:7)))), .after=OUTCOME)
+  
+ggplot(patient_last_results_count, aes(number_of_tests)) + geom_histogram(binwidth = 1)
 ```
 
 
-
-```{r group by patient id summary}
-summary(rc.gb.patient_id)
+```{r}
+patient_last_results_count
 ```
-TODO
+
 
 Zauważamy, że część pacjentów ma niewiele przeprowadzonych rodzajów badań. W zbiorze danych pozostawimy tylko tych, którzy mają ponad *TODO* wykonanych rodzajów badań.
 
@@ -260,21 +246,23 @@ TODO analityczne wybranie tej wartości
 * wartość progu
 
 ```{r}
-n_tests <- data.frame(PATIENT_ID = gb.patient_id$PATIENT_ID, number_of_tests = rc.gb.patient_id)
-cols_cnt <- ncol(df) - 7
-th_seq <- seq(0.5, 1.0, by=.025)
-cls_vec <- c()
-pts_vec <- c()
-for(th in th_seq) {
-  tmp <- n_tests %>% filter(number_of_tests < cols_cnt*th)
-  dt <- gb.patient_id %>% filter(!(PATIENT_ID %in% tmp$PATIENT_ID))
-  fl_cols <- mean(colSums(sapply(dt[,-(1:7)], is.na)) == 0)
-  pnts <- length(unique(dt$PATIENT_ID)) / length(unique(gb.patient_id$PATIENT_ID))
-  cls_vec <- append(cls_vec, fl_cols)
-  pts_vec <- append(pts_vec, pnts)
+veryfication_df <- function(n_tests, cols_cnt, th_seq) {
+  cls_vec <- c()
+  pts_vec <- c()
+  for(th in th_seq) {
+    tmp <- n_tests %>% filter(number_of_tests < cols_cnt*th)
+    dt <- patient_last_results_count %>% filter(!(PATIENT_ID %in% tmp$PATIENT_ID))
+    fl_cols <- mean(colSums(sapply(dt[,-(1:8)], is.na)) == 0)
+    pnts <- length(unique(dt$PATIENT_ID)) / length(unique(n_tests$PATIENT_ID))
+    cls_vec <- append(cls_vec, fl_cols)
+    pts_vec <- append(pts_vec, pnts)
+  }
+    data.frame(threshold=th_seq, full_cols=cls_vec, patients_left=pts_vec)
 }
-test_df <- data.frame(threshold=th_seq, full_cols=cls_vec, patients_left=pts_vec)
-ggplot(test_df, aes(x=threshold)) +
+
+to_plot <- veryfication_df(patient_last_results_count, ncol(df)-7, seq(0.5, 1.0, by=.025))
+
+ggplot(to_plot, aes(x=threshold)) +
   geom_line(aes(y=full_cols, color="Full columns")) + 
   geom_line(aes(y=patients_left, color="Patients left")) + 
   labs(color="Legend") +
@@ -283,8 +271,11 @@ ggplot(test_df, aes(x=threshold)) +
 
 ```{r remove poorly tested patients}
 threshold <- 0.65
-patients_to_be_removed <- n_tests %>% filter(number_of_tests < cols_cnt * threshold)
-df <- df %>% filter(!(PATIENT_ID %in% patients_to_be_removed$PATIENT_ID))
+patients_to_be_removed <- patient_last_results_count %>% 
+  filter(number_of_tests < (ncol(df)-7) * threshold) %>% 
+  select(PATIENT_ID)
+
+df <- df %>% filter(PATIENT_ID %!in% patients_to_be_removed$PATIENT_ID)
 ```
 
 Po usunięciu rekordów pacjentów, u których przeprowadzono mało badań, pozostało `r length(unique(df$PATIENT_ID))` unikalnych pacjentów.
@@ -293,15 +284,38 @@ Po usunięciu rekordów pacjentów, u których przeprowadzono mało badań, pozo
 ### Brakujące wartości w kategoriach
 
 ```{r number of missing values in each column}
-gb.patient_id <- df %>% group_by(PATIENT_ID) %>% fill(everything()) %>% summarise_all(last)
 knitr::kable(
-sort(colSums(sapply(gb.patient_id[,-(1:7)], is.na)))
+df %>% 
+  group_by(PATIENT_ID) %>% 
+  fill(everything()) %>% 
+  summarise_all(last) %>% 
+  ungroup() %>%
+  select(-(1:7)) %>% 
+  pivot_longer(everything()) %>%
+  mutate(value=is.na(value)) %>%
+  group_by(name) %>%
+  summarize(value=sum(value), .groups="drop") %>%
+  arrange(value)
 )
+
 ```
 
 ## Dodatkowe cechy
 
 * TODO days to outcome
+
+```{r}
+df <- df %>%  
+  mutate(DAYS_TO_OUTCOME = difftime(
+    floor_date(DISCHARGE_TIME, "1 day"), 
+    floor_date(RE_DATE, "1 day"), unit="days"
+    ), .before=OUTCOME)
+df %>% summarise(DAYS_TO_OUTCOME = quantile(DAYS_TO_OUTCOME, c(0, 0.25, 0.5, 0.75,1)), quantile = c("min", "1st", "2nd", "3rd", "max"))
+```
+
+```{r}
+ggplot(df, aes(DAYS_TO_OUTCOME)) + geom_histogram(binwidth = 1)
+```
 
 ## Ostateczny kształt zbioru
 
