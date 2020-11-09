@@ -233,12 +233,8 @@ ggplot(patient_last_results_count, aes(number_of_tests)) + geom_histogram(binwid
 ```
 
 
-```{r}
-patient_last_results_count
-```
 
-
-Zauważamy, że część pacjentów ma niewiele przeprowadzonych rodzajów badań. W zbiorze danych pozostawimy tylko tych, którzy mają ponad *TODO* wykonanych rodzajów badań.
+Zauważamy, że część pacjentów ma niewiele przeprowadzonych rodzajów badań. 
 
 TODO analityczne wybranie tej wartości  
 * procent pełnych kolumn
@@ -268,6 +264,10 @@ ggplot(to_plot, aes(x=threshold)) +
   labs(color="Legend") +
   geom_vline(xintercept=0.65, linetype = "longdash")
 ```
+TODO
+
+
+W zbiorze danych pozostawimy tylko tych, którzy mają ponad *0.65* wykonanych rodzajów badań.
 
 ```{r remove poorly tested patients}
 threshold <- 0.65
@@ -306,10 +306,10 @@ df %>%
 
 ```{r}
 df <- df %>%  
-  mutate(DAYS_TO_OUTCOME = difftime(
+  mutate(DAYS_TO_OUTCOME = as.numeric(difftime(
     floor_date(DISCHARGE_TIME, "1 day"), 
     floor_date(RE_DATE, "1 day"), unit="days"
-    ), .before=OUTCOME)
+    ), unit="days"), .before=OUTCOME)
 df %>% summarise(DAYS_TO_OUTCOME = quantile(DAYS_TO_OUTCOME, c(0, 0.25, 0.5, 0.75,1)), quantile = c("min", "1st", "2nd", "3rd", "max"))
 ```
 
@@ -317,19 +317,36 @@ df %>% summarise(DAYS_TO_OUTCOME = quantile(DAYS_TO_OUTCOME, c(0, 0.25, 0.5, 0.7
 ggplot(df, aes(DAYS_TO_OUTCOME)) + geom_histogram(binwidth = 1)
 ```
 
-## Ostateczny kształt zbioru
+
+### Agregacja wierszy według daty badania
 
 ```{r g2}
-g2 <- df %>% 
+df <- df %>% 
   mutate(RE_DATE = floor_date(RE_DATE, '1 day')) %>% 
   group_by(PATIENT_ID, RE_DATE) %>% 
   fill(everything()) %>% 
   summarise_all(last) %>% 
-  ungroup()
-row.counts.g2 <- rowSums(sapply(g2[,-(1:7)], function(x) !is.na(x)))
-hist(row.counts.g2, breaks=(ncol(g2)-7))
+  ungroup() %>%
+  rowwise() %>%
+  mutate(number_of_tests=sum(!is.na(c_across(-(1:8)))), .after=OUTCOME)
+ggplot(df, aes(number_of_tests)) + geom_histogram(binwidth = 1)
 ```
 
+```{r}
+df <- df %>% select(-number_of_tests)
+```
+# Zbiór danych
+
+```{r}
+summary(df)
+```
+
+```{r, fig.width=10, fig.height=40}
+ggplot(
+  df %>% pivot_longer(hypersensitive_cardiac_troponini:creatinine),
+  aes(y=value)
+) + geom_boxplot() + facet_wrap(name ~ ., scales="free",ncol=6)
+```
 
 # Techniczne
 
