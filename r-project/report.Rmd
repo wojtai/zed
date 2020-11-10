@@ -148,7 +148,7 @@ Nazwy kolumn zostały poddane następującym transformacjom:
 ```{r renaming attributes names}
 df <- df %>%
   rename("NT-proBNP" = "Amino-terminal brain natriuretic peptide precursor(NT-proBNP)") %>%
-  rename("2019-nCov-detection" = "2019-nCoV nucleic acid detection") %>%
+  rename("2019-nCov-dete" = "2019-nCoV nucleic acid detection") %>%
   rename("aPPT" = "Activation of partial thromboplastin time") %>%
   rename("ALP" = "Alkaline phosphatase") %>%
   rename("AAT" = "aspartate aminotransferase") %>%
@@ -367,7 +367,9 @@ df <- df %>% select(-number_of_tests)
 ggplot(
   df %>% pivot_longer(hs_cTnI:creatinine) %>% filter(!is.na(value)),
   aes(x=OUTCOME, y=value)
-) + geom_boxplot() + facet_wrap(name ~ ., scales="free",ncol=6)
+) + geom_boxplot() +
+scale_x_discrete(labels = abbreviate) + 
+facet_wrap(name ~ ., scales="free",ncol=6)
 ```
 
 
