@@ -148,7 +148,7 @@ Nazwy kolumn zostały poddane następującym transformacjom:
 ```{r renaming attributes names}
 df <- df %>%
   rename("NT-proBNP" = "Amino-terminal brain natriuretic peptide precursor(NT-proBNP)") %>%
-  rename("2019-nCov-dete" = "2019-nCoV nucleic acid detection") %>%
+  rename("2019-nCov-detection" = "2019-nCoV nucleic acid detection") %>%
   rename("aPPT" = "Activation of partial thromboplastin time") %>%
   rename("ALP" = "Alkaline phosphatase") %>%
   rename("AAT" = "aspartate aminotransferase") %>%
@@ -369,9 +369,20 @@ ggplot(
   aes(x=OUTCOME, y=value)
 ) + geom_boxplot() +
 scale_x_discrete(labels = abbreviate) + 
-facet_wrap(name ~ ., scales="free",ncol=6)
+facet_wrap(name ~ ., scales="free",ncol=5)
 ```
+# Korelacja
 
+```{r, message=FALSE}
+cor_mat <- cor(
+  x = df %>% select(-c(1:2,4:8)), 
+  y = df %>% mutate(isCURED=OUTCOME=="CURED",isDECEASED=OUTCOME=="DECEASED") %>% select(isCURED, isDECEASED),
+  use="pairwise.complete.obs"
+  )
+knitr::kable(
+data.frame(round(cor_mat,2)) %>% arrange(desc(abs(isCURED))) %>% head(15)
+)
+```
 
 
 # Techniczne
