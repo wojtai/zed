@@ -144,9 +144,34 @@ Nazwy kolumn zostały poddane następującym transformacjom:
 
 * TODO
 
+
 ```{r renaming attributes names}
 df <- df %>%
   rename("NT-proBNP" = "Amino-terminal brain natriuretic peptide precursor(NT-proBNP)") %>%
+  rename("2019-nCov-detection" = "2019-nCoV nucleic acid detection") %>%
+  rename("aPPT" = "Activation of partial thromboplastin time") %>%
+  rename("ALP" = "Alkaline phosphatase") %>%
+  rename("AAT" = "aspartate aminotransferase") %>%
+  rename("FDPs" = "Fibrin degradation products") %>%
+  rename("ALT" = "glutamic-pyruvic transaminase") %>%
+  rename("hs-CRP" = "High sensitivity C-reactive protein") %>%
+  rename("hs-cTnI" = "Hypersensitive cardiac troponinI") %>%
+  rename("HCV-abs-quant" = "HCV antibody quantification") %>%
+  rename("HIV-abs-quant" = "HIV antibody quantification") %>%
+  rename("INR" = "International standard ratio") %>%
+  rename("LDH" = "Lactate dehydrogenase") %>%
+  rename("MCH" = "mean corpuscular hemoglobin") %>%
+  rename("MCHC" = "mean corpuscular hemoglobin concentration") %>%
+  rename("MCV" = "mean corpuscular volume") %>%
+  rename("MPV" = "Mean platelet volume") %>%
+  rename("P-LCR" = "platelet large cell ratio") %>%
+  rename("q-t-pallidum-abs" = "Quantification of Treponema pallidum antibodies") %>%
+  rename("RCDW-SD" = "RBC distribution width SD") %>%
+  rename("RBC_count" = "Red blood cell count") %>%
+  rename("RCDW" = "Red blood cell distribution width") %>%
+  rename("TNF-alfa" = "Tumor necrosis factorα") %>%
+  rename("WBC_count" = "White blood cell count") %>%
+  rename("gamma-GT" = "γ-glutamyl transpeptidase") %>%
   rename_with(~str_c(str_replace(.x, "\\(%\\)", ""), "_percent"), contains("(%)")) %>%
   rename_with(~str_replace(.x, "\\(#\\)", "")) %>%
   rename_with(tolower, matches("^[[:upper:]]{1}[[:lower:]]+", ignore.case = FALSE)) %>%
@@ -337,16 +362,15 @@ df <- df %>% select(-number_of_tests)
 ```
 # Zbiór danych
 
-```{r}
-summary(df)
-```
 
 ```{r, fig.width=10, fig.height=40}
 ggplot(
-  df %>% pivot_longer(hypersensitive_cardiac_troponini:creatinine),
-  aes(y=value)
+  df %>% pivot_longer(hs_cTnI:creatinine) %>% filter(!is.na(value)),
+  aes(x=OUTCOME, y=value)
 ) + geom_boxplot() + facet_wrap(name ~ ., scales="free",ncol=6)
 ```
+
+
 
 # Techniczne
 
