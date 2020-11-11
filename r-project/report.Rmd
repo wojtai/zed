@@ -31,6 +31,8 @@ library(stringr)
 library(ggplot2)
 library(purrr)
 library(broom)
+library(tibble)
+library(plotly)
 ```
 
 ```{r utils, echo=FALSE}
@@ -172,6 +174,7 @@ df <- df %>%
   rename("MCV" = "mean corpuscular volume") %>%
   rename("MPV" = "Mean platelet volume") %>%
   rename("P-LCR" = "platelet large cell ratio") %>%
+  rename("PDW" = "PLT distribution width") %>%
   rename("q-t-pallidum-abs" = "Quantification of Treponema pallidum antibodies") %>%
   rename("RCDW-SD" = "RBC distribution width SD") %>%
   rename("RBC_count" = "Red blood cell count") %>%
@@ -367,6 +370,8 @@ ggplot(df, aes(number_of_tests)) + geom_histogram(binwidth = 1)
 ```{r}
 df <- df %>% select(-number_of_tests)
 ```
+
+
 # Zbiór danych
 
 
@@ -378,18 +383,39 @@ ggplot(
 scale_x_discrete(labels = abbreviate) + 
 facet_wrap(name ~ ., scales="free",ncol=5)
 ```
-# Korelacja
 
-```{r, message=FALSE}
+## Korelacja
+
+TODO
+
+
+```{r, message=FALSE, out.width = "100%", fig.align="center", fig.width=10, fig.height=8}
 cor_mat <- cor(
-  x = df %>% select(-c(1:2,4:8)), 
-  y = df %>% mutate(isCURED=OUTCOME=="CURED") %>% select(isCURED),
+  x = df %>% 
+    mutate(isMALE = as.numeric(GENDER=="MALE"), 
+           isCURED = as.numeric(OUTCOME=="CURED"),
+           has_nCOV_test = as.numeric(!is.na(`2019_nCov_detection`))) %>% 
+    select(-c(1:8), -"2019_nCov_detection"), 
   use="pairwise.complete.obs"
   )
+cor_df = data.frame(round(cor_mat,2)) %>% 
+ rownames_to_column() %>%
+ pivot_longer(-rowname, names_to="colname")
+
+cor_plot <- ggplot(cor_df, aes(colname, rowname, fill=value)) + 
+  geom_tile() +
+  scale_fill_gradient2() + 
+  theme(axis.text.x=element_text(angle = 90, hjust = 0))
+
+ggplotly(cor_plot)
+```
+
+```{r}
 knitr::kable(
-data.frame(round(cor_mat,2)) %>% arrange(desc(abs(isCURED))) %>% head(15)
+cor_df %>% filter(colname>rowname) %>% arrange(desc(abs(value))) %>% head(30)
 )
 ```
+
 ```{r}
 knitr::kable(
 tidy(cor.test(df$LDH, as.numeric(df$OUTCOME=="CURED")))
