@@ -18,7 +18,9 @@ output:
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-```{r libraries, message=FALSE, echo=FALSE}
+# Użyte biblioteki
+
+```{r libraries, message=FALSE}
 library(readxl)
 library(httr)
 library(arules)
@@ -27,6 +29,8 @@ library(dplyr)
 library(lubridate)
 library(stringr)
 library(ggplot2)
+library(purrr)
+library(broom)
 ```
 
 ```{r utils, echo=FALSE}
@@ -73,12 +77,14 @@ Wartości płci nie są jawnie opisane, w artykule źródłowym została natomia
 ```{r}
 knitr::kable(
 table(df %>% group_by(PATIENT_ID) %>% summarise_all(last) %>% select(GENDER)),
-col.names = c("GENDER", "count")
+col.names = c("GENDER", "count"),
+align="lc"
 )
 ```
 
 Wniosek:  
-* Mężczyźni - wartość `1`
+
+* Mężczyźni - wartość `1`  
 * Kobiety - wartość `2`
 
 ```{r factorize}
@@ -95,6 +101,7 @@ knitr::kable(summary(select(df, RE_DATE)))
 Pozostałe z atrybtów ogólnych, są wspólne dla każdego pacjenta, zastosowano transformację do zniwelowania skutków duplikacji.
 
 ```{r top summary}
+options(knitr.kable.NA = '')
 knitr::kable(
   summary(
     df %>% 
@@ -376,14 +383,32 @@ facet_wrap(name ~ ., scales="free",ncol=5)
 ```{r, message=FALSE}
 cor_mat <- cor(
   x = df %>% select(-c(1:2,4:8)), 
-  y = df %>% mutate(isCURED=OUTCOME=="CURED",isDECEASED=OUTCOME=="DECEASED") %>% select(isCURED, isDECEASED),
+  y = df %>% mutate(isCURED=OUTCOME=="CURED") %>% select(isCURED),
   use="pairwise.complete.obs"
   )
 knitr::kable(
 data.frame(round(cor_mat,2)) %>% arrange(desc(abs(isCURED))) %>% head(15)
 )
 ```
+```{r}
+knitr::kable(
+tidy(cor.test(df$LDH, as.numeric(df$OUTCOME=="CURED")))
+)
+```
 
+```{r}
+correlations <- df %>% mutate(isCURED=as.numeric(OUTCOME=="CURED")) %>% select(-c(1:2,4:8)) %>% 
+  pivot_longer(!isCURED, names_to="attribute", values_to="x_val") %>%
+  filter(!is.na(x_val)) %>%
+  nest(data = c(x_val, isCURED)) %>%
+  mutate(cor_test = map(data, ~tidy(cor.test(.x$x_val, .x$isCURED)))) %>% 
+  unnest(cor_test) %>%
+  select(attribute, estimate, p.value, conf.low, conf.high) %>% 
+  arrange(desc(abs(estimate))) %>% head(15)
+knitr::kable(
+correlations
+)
+```
 
 # Techniczne
 
