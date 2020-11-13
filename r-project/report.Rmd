@@ -244,7 +244,7 @@ length(unique(apply(transactions, 1, function(x) which(x))))
 
 Szukamy maksymalnych domkniętych zbiorów częstych - sprawdzamy czy badania występują w grupach.
 
-```{r apriori}
+```{r apriori, message=FALSE}
 itemsets <- apriori(transactions, parameter = list(target="closed frequent itemsets", support=.05, minlen=1, maxlen=30, maxtime=60))
 mc_itemsets <- itemsets[is.maximal(itemsets)]
 inspect(head(sort(mc_itemsets, by = 'support'), 10))
@@ -254,6 +254,37 @@ TODO wnioski ze zbiorów częstych
 
 
 Wyniki różnych testów prawdopodobnie pojawiały się w systemie o różnych porach, dlatego można je razem agregować.
+
+```{r}
+fancy <- as(items(sort(mc_itemsets, by="support")), "matrix")
+labeled <- df %>% rowwise() %>%
+  mutate(CLASS = paste(
+    which(apply((matrix(!is.na(c_across(-(1:7))), nrow=nrow(fancy), ncol=ncol(fancy), byrow=TRUE, dimnames=dimnames(fancy)) & fancy) == fancy, 1, all)), collapse=""), .after=OUTCOME ) %>%
+  mutate(CLASS = if(CLASS != "" && as.integer(CLASS)>10) "MULTIPLE" else CLASS) %>%
+  mutate(CLASS = str_replace(CLASS, "^$", "NONE")) %>%
+  mutate(CLASS = str_trim(CLASS)) %>%
+  mutate(CLASS = factor(CLASS)) %>%
+  rowwise() %>%
+  mutate(SIZE = sum(!is.na(c_across(-c(1:8)))), .after=CLASS) %>%
+  select(1:9) %>%
+  ungroup()
+
+labeled %>% group_by(CLASS) %>% summarize(CNT = n(), .groups="drop") %>% arrange(desc(CNT))
+```
+```{r test one liner, echo=FALSE}
+paste(which(apply((matrix(!is.na(df[4,-(1:7)]), nrow=nrow(fancy), ncol=ncol(fancy), byrow=TRUE, dimnames=dimnames(fancy)) & fancy)==fancy, 1, all)), collapse="")
+```
+```{r, fig.width=10, fig.height=8}
+group.plot <- ggplot(
+  labeled %>% slice_sample(n=1000), 
+  aes(x=RE_DATE, y=CLASS, color=CLASS)
+  ) +
+  geom_jitter() +
+  scale_x_datetime(date_breaks = "1 week", date_labels = "%d %b %Y")# +
+  #facet_wrap(CLASS ~ ., ncol=1)
+
+ggplotly(group.plot)
+```
 
 ### Badania poszczególnych pacjentów
 
@@ -435,6 +466,29 @@ knitr::kable(
 correlations
 )
 ```
+
+## Analiza wypisów ze szpitala
+
+```{r, fig.width=10, fig.height=6, out.width="100%"}
+tseries <- df %>% 
+  select(1:8) %>% 
+  group_by(PATIENT_ID) %>% 
+  summarize(across(everything(), last), .groups="drop") %>% 
+  select(-RE_DATE, -AGE, -GENDER, -DAYS_TO_OUTCOME, -PATIENT_ID) %>%
+  pivot_longer(ADMISSION_TIME:DISCHARGE_TIME, names_to="TYPE", values_to="DATE") %>%
+  mutate(DATE = floor_date(DATE, "days")) %>%
+  mutate(TYPE = str_replace(TYPE, "_TIME", "")) %>% 
+  count(TYPE, DATE, OUTCOME) %>%
+  rename("COUNT" = "n")
+
+tplot <- ggplot(tseries, aes(x=DATE, y=COUNT, fill=OUTCOME)) + 
+  geom_col() + 
+  scale_x_datetime(date_breaks = "1 week", date_labels = "%d %b %Y") +
+  facet_grid(TYPE ~ .)
+
+ggplotly(tplot)
+```
+
 
 # Techniczne
 
