@@ -256,11 +256,33 @@ TODO wnioski ze zbiorów częstych
 Wyniki różnych testów prawdopodobnie pojawiały się w systemie o różnych porach, dlatego można je razem agregować.
 
 ```{r}
-fancy <- as(items(sort(mc_itemsets, by="support")), "matrix")
+class_labels <- as(items(sort(mc_itemsets, by="support")), "list")
+class_labels <- sapply(class_labels, function(x) x[1])
+class_labels[1] <- "CBC"
+class_labels[3] <- "Group3"
+class_labels[10] <- "Group10"
+```
+
+
+```{r}
+classes <- as(items(sort(mc_itemsets, by="support")), "matrix")
 labeled <- df %>% rowwise() %>%
   mutate(CLASS = paste(
-    which(apply((matrix(!is.na(c_across(-(1:7))), nrow=nrow(fancy), ncol=ncol(fancy), byrow=TRUE, dimnames=dimnames(fancy)) & fancy) == fancy, 1, all)), collapse=""), .after=OUTCOME ) %>%
+    which(
+      apply(
+        (matrix(
+          !is.na(c_across(-(1:7))), 
+          nrow=nrow(classes), 
+          ncol=ncol(classes), 
+          byrow=TRUE, 
+          dimnames=dimnames(classes)
+          ) & classes) == classes, 
+        1, 
+        all)
+      ), collapse=""), 
+    .after=OUTCOME ) %>%
   mutate(CLASS = if(CLASS != "" && as.integer(CLASS)>10) "MULTIPLE" else CLASS) %>%
+  mutate(CLASS = if(CLASS != "" && CLASS != "MULTIPLE") class_labels[as.integer(CLASS)] else CLASS) %>%
   mutate(CLASS = str_replace(CLASS, "^$", "NONE")) %>%
   mutate(CLASS = str_trim(CLASS)) %>%
   mutate(CLASS = factor(CLASS)) %>%
@@ -272,16 +294,19 @@ labeled <- df %>% rowwise() %>%
 labeled %>% group_by(CLASS) %>% summarize(CNT = n(), .groups="drop") %>% arrange(desc(CNT))
 ```
 ```{r test one liner, echo=FALSE}
-paste(which(apply((matrix(!is.na(df[4,-(1:7)]), nrow=nrow(fancy), ncol=ncol(fancy), byrow=TRUE, dimnames=dimnames(fancy)) & fancy)==fancy, 1, all)), collapse="")
+paste(which(
+  apply((matrix(!is.na(df[4,-(1:7)]), nrow=nrow(classes), ncol=ncol(classes), byrow=TRUE, dimnames=dimnames(classes)) & classes)==classes, 1, all)
+  ), collapse="")
 ```
-```{r, fig.width=10, fig.height=8}
+
+```{r, fig.width=10, fig.height=10, out.width="100%"}
 group.plot <- ggplot(
-  labeled %>% slice_sample(n=1000), 
+  labeled, #%>% slice_sample(n=1000), 
   aes(x=RE_DATE, y=CLASS, color=CLASS)
   ) +
   geom_jitter() +
-  scale_x_datetime(date_breaks = "1 week", date_labels = "%d %b %Y")# +
-  #facet_wrap(CLASS ~ ., ncol=1)
+  scale_x_datetime(date_breaks = "1 week", date_labels = "%d %b %Y") +
+  geom_rug(sides="b", outside=TRUE, mapping = aes(x=ADMISSION_TIME, color=NULL)) + coord_cartesian(clip="off")
 
 ggplotly(group.plot)
 ```
