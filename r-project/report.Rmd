@@ -1,7 +1,7 @@
 ---
-title: "Report"
-author: "Me"
-date: "Today"
+title: "Raport - badania krwi pacjentów zakazonych COVID-19"
+author: "Wojciech Taisner"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
 knit: (function(input_file, encoding) {
   out_dir <- 'html';
   rmarkdown::render(input_file, encoding=encoding, output_file=file.path(dirname(input_file), out_dir, 'index.html'))
@@ -146,6 +146,8 @@ knitr::kable(
 Liczba unikatowych identyfikatorów pacjentów wynosi `r length(unique(df$PATIENT_ID))`.
 
 ### Czas hosptializacji
+
+TODO
 
 Ta sekcja poświęcona jest analizie długości hospitalizacji poszczególnych grup pacjentów.
 
@@ -304,7 +306,9 @@ Sugeruje to, że możliwe będzie scalanie rekordów, np na podstawie dnia wykon
 
 ### Badania w czasie
 
-TODO
+W tej sekcji przeprowadzona zostanie analiza występowania badań w czasie. Ponadto rekordy zostaną pogrupowane według przynależności do zbiorów wyznaczonych w poprzedniej sekcji oraz dwóch dodatkowych klas `NONE` jeśli rekord nie należy do żadnej kategorii i `MULTIPLE` jeśli rekod należy do więcej niż jednej kategorii.
+
+Poniższe blok kodu generuje oetykietowany zbiór rekordów badań, ograniczony jedynie do podstawowych informacji.
 
 ```{r}
 class_labels <- as(items(sort(mc_itemsets, by="support")), "list")
@@ -312,10 +316,7 @@ class_labels <- sapply(class_labels, function(x) x[1])
 class_labels[1] <- "Complete blood count"
 class_labels[3] <- "Blood biochemistry"
 class_labels[10] <- "Coagulation"
-```
 
-
-```{r}
 classes <- as(items(sort(mc_itemsets, by="support")), "matrix")
 labeled <- df %>% rowwise() %>%
   mutate(CLASS = paste(
@@ -342,14 +343,19 @@ labeled <- df %>% rowwise() %>%
   select(1:9) %>%
   ungroup()
 
-labeled %>% group_by(CLASS) %>% summarize(CNT = n(), .groups="drop") %>% arrange(desc(CNT))
+knitr::kable(
+  labeled %>% group_by(CLASS) %>% summarize(count = n(), .groups="drop") %>% arrange(desc(count))
+)
 ```
 
+Powyższa tabela prezentuje ilość rekordów przydzielonych do każdej z klas.
 
-```{r, fig.width=10, fig.height=10, out.width="100%"}
+Poniższy wykres prezentuje badania danej kategorii według daty wykonania. Dodatkowo każdy punkt jest opisany identyfikatorem pacjenta.
+
+```{r, fig.width=10, fig.height=10, out.width="100%", echo=FALSE}
 group.plot <- ggplot(
   labeled, 
-  aes(x=RE_DATE, y=CLASS, color=CLASS)
+  aes(x=RE_DATE, y=CLASS, color=CLASS, label=PATIENT_ID)
   ) +
   geom_jitter(size=0.2) +
   scale_x_datetime(date_breaks = "1 week", date_labels = "%d %b %Y") +
@@ -357,6 +363,14 @@ group.plot <- ggplot(
 
 ggplotly(group.plot)
 ```
+
+Z powyższego wykresu można wywnioskować kilka rzeczy:
+
+* Większość badań została przeprowadzona po 27 stycznia 2020, wszystkie badania zostały wykonane do 19 lutego 2020. Można rozważyć przeprowadzenie dodatkowej analizy skupiającej się na ilości przyjęć i wypisów ze szpitala, w zależności od dnia, aby wyciągnąć dodatkowe wnioski. Fakt ten moze wynikać ze zwiększonej liczby przyjmowanych pacjentów po 27 stycznia 2020.
+* Część badań nie była w praktyce przeprowdzana (lub na małą skalę) przed 27 stycznia 2020
+* Na wykresie można zaobserwować, że poszczególne punkty są często zgrupowane w "paski" - takie grupy rekordów cechują się małymi różnicami w wartości atrybutu `RE_DATE`. Biorąc pod uwagę fakt, że takie punkty najcześciej przynależą do różnych pacjentów i do tej samej kategorii, należy wnioskować, że poszczególne rodzaje badań były wykonywane równolegle dla wielu pacjentów.
+
+Jednocześnie nie znaleziono żadnych czynników, które podważają sens scalania rekordów.
 
 ### Badania poszczególnych pacjentów
 
@@ -381,6 +395,7 @@ ggplot(
 Zauważamy, że część pacjentów ma niewiele przeprowadzonych rodzajów badań. 
 
 TODO analityczne wybranie tej wartości  
+
 * procent pełnych kolumn
 * procent pozostawionych pacjentów
 * wartość progu
