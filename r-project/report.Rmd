@@ -53,7 +53,37 @@ df <- read_excel(tf) %>% fill(PATIENT_ID)
 ## Atrybuty zbioru danych
 Surowy zbiór danych zawiera `r ncol(df)` atrybutów i `r nrow(df)` wierszy.  
 
-TODO opisać podział na atrybuty ogólne i wyniki badań
+Atrybuty zbioru danych można potwierdzić na dwie grupy:
+
+* Atrybuty ogólne - zawierają etykiety, podstawowe dane pacjenta(płeć, wiek, identyfikator, datę przyjęcia i wypisu, rezultat) oraz datę wykonania badania
+* Wyniki badań - w kolumnach są umieszczone wartości poszczególnych badanych właściwości krwi
+
+### Brakujące dane
+
+Poza danymi niedostępnymi (`NA`) w zbiorze danych wsytępują dane brakujące, oznakowane wartością `-1`.
+Poniższa tabela pokazuje ilość takich wartości w każdej kolumnie, o ile te wartości występują.
+
+```{r}
+df %>% pivot_longer(-c(RE_DATE,`Admission time`, `Discharge time`)) %>% filter(value==-1) %>% count(name)
+```
+
+
+Dla kolumny `Platelet count` warkości brakujących jest mało, liczby `-1` zostaną zamienione na `NA`.
+
+```{r}
+df <- df %>% mutate(`Platelet count` = if(is.na(`Platelet count`) || `Platelet count` != -1) `Platelet count` else NA)
+```
+
+Dla kolumny `2019-nCoV nucleic acid detection` sprawdzimy całkowitą ilość wartości różnych od `NA`.
+
+```{r}
+df %>% 
+  pivot_longer(-c(RE_DATE,`Admission time`, `Discharge time`)) %>% 
+  filter(name=="2019-nCoV nucleic acid detection") %>% 
+  filter(!is.na(value)) %>% count(name)
+```
+
+Wszystkie wartości w kolumnie `2019-nCoV nucleic acid detection` różne od `NA` wynoszą `-1`, w związku z tym ta kolumna jest właściwie nieprzydatna. Mimo to na ten moment postanowiono nie zmieniać wartości w tej kolumnie, ewentualne zmiany można wykonać w dalszych krokach.
 
 ### Atrybuty ogólne
 Pierwszych siedem kolumn to atrybuty ogólne, reprezentują następująco:
@@ -78,11 +108,11 @@ Do tego trzeba przeprowadzić identyfikację typu płci.
 Wartości płci nie są jawnie opisane, w artykule źródłowym została natomiast podana proporcja pacjentów danej płci, co powinno umożliwić okreslenie właściwego przypisania.
 ```{r}
 knitr::kable(
-table(df %>% group_by(PATIENT_ID) %>% summarise_all(last) %>% select(GENDER)),
-col.names = c("GENDER", "count"),
+df %>% group_by(PATIENT_ID) %>% summarise_all(last) %>% count(GENDER) %>% rename("count" = "n"),
 align="lc"
 )
 ```
+
 
 Wniosek:  
 
@@ -131,7 +161,7 @@ ht %>%
 ```
 
 ```{r, echo=FALSE}
-ggplot(ht, aes(HOSPITALIZATION_TIME)) + geom_histogram(binwidth = 1)
+ggplot(ht, aes(as.numeric(HOSPITALIZATION_TIME, unit="days"), fill=OUTCOME)) + geom_histogram(binwidth = 1) + xlab("HOSPITALIZATION DAYS")
 ```
 
 ```{r, echo=FALSE}
@@ -151,8 +181,13 @@ Pozostałe `r ncol(df)-7` kolumn zawiera wartości atrybutów, które reprezentu
 
 Nazwy kolumn zostały poddane następującym transformacjom:
 
-* TODO
+* Zamieniono długie nazwy kolumn na krótkie, skrótowe odpowiedniki, na podstawie nazw medycznych (częściowy *code book* dostępny jest w repozytorium)
+* oznaczenia `(%)` zamieniono na suffix `_percent`
+* oznaczenia `(#)` usunięto
+* nazwy zaczynajace się wielką literą i poza tym skłądające się z małych liter zamieniono na odpowiedniki skłądające się wyłącznie z małych znaków, jednak skrótowce zostały zachwowane
+* znak spacji ` ` i myślnika `-` zamieniono na podkreślenie dolne `_` ze względu na łatwość odwołania się do kolumn
 
+Poniższy blok kodu szczegółowo ukazuje zatosowane transfomrmacje, jednocześnie prezentowana są ostatenczne nazwy kolumn wyników badań.
 
 ```{r renaming attributes names}
 df <- df %>%
@@ -192,7 +227,7 @@ str_sort(colnames(df[,-(1:7)]))
 
 ## Czyszczenie zbioru danych
 
-TODO
+Niniejsza sekcja jest poświęcona wstępnemu przetwarzniu zbiorów danych, ze szczególnym uwzględnieniem usuwania i scalania wybranych rekordów.
 
 ### Puste rekordy w zbiorze
 
@@ -209,58 +244,74 @@ df <- df[!is.na(df$RE_DATE),]
 
 Po tej zmianie w zbiorze pozostało `r nrow(df)` wierszy i `r length(unique(df$PATIENT_ID))` unikalnych identyfikatorów pacjentów.
 
-TODO komentarz do usunięcia
-
 ### Kategorie badań
 
 Wstępnę analiza danych sugeruje wskazuje, że wiele wartości atrybutów jest oznaczona wartością 'NA'.
-W poniższych blokach kodu, wyliczana jest liczba elementów, które mają wartość inną niż 'NA' dla każdego wiersza.
+Poniższy wykresy wskazuje, ilość wystąpień rekordów badań z danę liczbą wartości (różnych od `NA`).
 
 ```{r, echo=FALSE}
 ggplot(
-  df %>% rowwise() %>% mutate(categories=sum(!is.na(c_across(-(1:7))))),
-  aes(categories)
-) + geom_histogram(binwidth = 1)
+  df %>% rowwise() %>% mutate(n_of_values=sum(!is.na(c_across(-(1:7))))),
+  aes(n_of_values)
+) + geom_histogram(binwidth = 1) +
+  xlab("Number of not NA values")
 ```
 
-TODO analiza i wnioski
+Z powyższego histogramu można wyciągnąć kilka wniosków
 
-* prawie połowa rekordów ma zaledwie jeden wynik badania.
-* co ciekawe, druga i trzecia pod względem liczości grupa rekordów ma odpowiednio po 24 i 23 elementy.
-* Można dokonać analizy, czy te grupy powstają losowo, czy mają jakiś wspólny podzbiór -> analiza zbiorów częstych.
+* Znacząca większość rekordów ma zaledwie jeden wynik badania (jedną wartość).
+* Interesujący jest fakt, że druga i trzecia pod względem liczości grupa rekordów ma odpowiednio po 24 i 23 elementy, taki fakt może sugerować, że elementy mogą występować w grupach. Możliwa jest dalsza analiza *współwystępowania ze sobą atrybutów*, np. przy pomocy analizy zbiorów częstych.
+* Ze względu na to, że właściwie nie ma rekordów, które opisują wszystkie `r ncol(df) -7` atrybuty, konieczne będzie scalanie rekordów w dalszych krokach.
 
 
 ### Współwystępowanie kategorii
-Zauważamy, że dużo NA, wynika to z tego, że badania są rozrzucone.
-Badanie zbiorów, czy któreś są częstsze niż inne.
+
+W poprzedniej sekcji stwierdzono, że można przeanalizować współwystępowanie ze sobą poszczególnych atrybutów w rekordach. 
+W związku z tym tabela wyników badań zostanie przekształcona do zbioru binarnych transakcji.
+
 ```{r transactions}
 transactions <- sapply(df[,-(1:7)], function(x) !is.na(x))
 ```
 
-Ilość unikalnych transakcji
+Sprawdzona zostanie ilość unikalnych transakcji.
 ```{r unique transactions count}
 length(unique(apply(transactions, 1, function(x) which(x))))
 ```
+W zbiorze `r nrow(transactions)` transakcji jest zaledwie `r length(unique(apply(transactions, 1, function(x) which(x))))` różnych typów.  
 
-Szukamy maksymalnych domkniętych zbiorów częstych - sprawdzamy czy badania występują w grupach.
+
+Aby sprawdzić, czy atrybuty wsytępują w grupach, wyszukiwane są maksymalne domknięte zbiory częste, dla mimalnej wartości `support` równej `5%`.
 
 ```{r apriori, message=FALSE}
 itemsets <- apriori(transactions, parameter = list(target="closed frequent itemsets", support=.05, minlen=1, maxlen=30, maxtime=60))
 mc_itemsets <- itemsets[is.maximal(itemsets)]
-inspect(head(sort(mc_itemsets, by = 'support'), 10))
+```
+```{r}
+inspect(sort(mc_itemsets, by = 'support'))
 ```
 
-TODO wnioski ze zbiorów częstych
 
+Otrzymaliśmy 10 maksymalnych domkniętych zbiorów częstych, z czego 7 to zbiory jednolementowe.
+Pozostałe 3 zbiory (1, 3 i 10) zawierają wiele elementów. 
+Na podstawie elementów składowych, zbiory wieolemelemnetowe zostały zakwalifikowane następująco:
 
-Wyniki różnych testów prawdopodobnie pojawiały się w systemie o różnych porach, dlatego można je razem agregować.
+* Zbiór 1 - zawiera elementy typowe dla badania *morfologii krwi* (ang. *Compete blood count (CBC)*)
+* Zbiór 3 - zawiera elementy typowe dla badania *biochemii krwi* (ang. *Blood biochemistry*)
+* Zbiór 10 - zawiera elementy typowe dla badania *krzepliwości krwi* (ang. *Coagulation*)
+
+Na podstawie uzyskanego wyniku można wnioskować, że ilość elementów w rekordzie może wynikać z procesu technologicznego analizowania próbek krwi.
+Sugeruje to, że możliwe będzie scalanie rekordów, np na podstawie dnia wykonania badania (jeśli jednemu pacjentowi przeprowadzono wiele badań w ciagu dnia).
+
+### Badania w czasie
+
+TODO
 
 ```{r}
 class_labels <- as(items(sort(mc_itemsets, by="support")), "list")
 class_labels <- sapply(class_labels, function(x) x[1])
-class_labels[1] <- "CBC"
-class_labels[3] <- "Group3"
-class_labels[10] <- "Group10"
+class_labels[1] <- "Complete blood count"
+class_labels[3] <- "Blood biochemistry"
+class_labels[10] <- "Coagulation"
 ```
 
 
@@ -293,20 +344,16 @@ labeled <- df %>% rowwise() %>%
 
 labeled %>% group_by(CLASS) %>% summarize(CNT = n(), .groups="drop") %>% arrange(desc(CNT))
 ```
-```{r test one liner, echo=FALSE}
-paste(which(
-  apply((matrix(!is.na(df[4,-(1:7)]), nrow=nrow(classes), ncol=ncol(classes), byrow=TRUE, dimnames=dimnames(classes)) & classes)==classes, 1, all)
-  ), collapse="")
-```
+
 
 ```{r, fig.width=10, fig.height=10, out.width="100%"}
 group.plot <- ggplot(
-  labeled, #%>% slice_sample(n=1000), 
+  labeled, 
   aes(x=RE_DATE, y=CLASS, color=CLASS)
   ) +
-  geom_jitter() +
+  geom_jitter(size=0.2) +
   scale_x_datetime(date_breaks = "1 week", date_labels = "%d %b %Y") +
-  geom_rug(sides="b", outside=TRUE, mapping = aes(x=ADMISSION_TIME, color=NULL)) + coord_cartesian(clip="off")
+  theme(legend.position="none")
 
 ggplotly(group.plot)
 ```
@@ -314,13 +361,19 @@ ggplotly(group.plot)
 ### Badania poszczególnych pacjentów
 
 TODO Analiza ilości badań przeprowadzonych jednemu pacjentowi. 
+
 ```{r group by patient id}
-patient_last_results <- df %>% group_by(PATIENT_ID) %>% fill(everything()) %>% summarise_all(last)
-patient_last_results_count <- patient_last_results %>% 
+patient_last_results <- df %>% 
+  group_by(PATIENT_ID) %>% 
+  fill(everything()) %>% 
+  summarise_all(last) %>%
   rowwise() %>% 
   mutate(number_of_tests=sum(!is.na(c_across(-(1:7)))), .after=OUTCOME)
   
-ggplot(patient_last_results_count, aes(number_of_tests)) + geom_histogram(binwidth = 1)
+ggplot(
+  patient_last_results, 
+  aes(number_of_tests)
+  ) + geom_histogram(binwidth = 1)
 ```
 
 
@@ -338,7 +391,7 @@ veryfication_df <- function(n_tests, cols_cnt, th_seq) {
   pts_vec <- c()
   for(th in th_seq) {
     tmp <- n_tests %>% filter(number_of_tests < cols_cnt*th)
-    dt <- patient_last_results_count %>% filter(!(PATIENT_ID %in% tmp$PATIENT_ID))
+    dt <- n_tests %>% filter(!(PATIENT_ID %in% tmp$PATIENT_ID))
     fl_cols <- mean(colSums(sapply(dt[,-(1:8)], is.na)) == 0)
     pnts <- length(unique(dt$PATIENT_ID)) / length(unique(n_tests$PATIENT_ID))
     cls_vec <- append(cls_vec, fl_cols)
@@ -347,22 +400,22 @@ veryfication_df <- function(n_tests, cols_cnt, th_seq) {
     data.frame(threshold=th_seq, full_cols=cls_vec, patients_left=pts_vec)
 }
 
-to_plot <- veryfication_df(patient_last_results_count, ncol(df)-7, seq(0.5, 1.0, by=.025))
+to_plot <- veryfication_df(patient_last_results, ncol(df)-8, seq(0.5, 1.0, by=.025))
 
 ggplot(to_plot, aes(x=threshold)) +
   geom_line(aes(y=full_cols, color="Full columns")) + 
   geom_line(aes(y=patients_left, color="Patients left")) + 
   labs(color="Legend") +
-  geom_vline(xintercept=0.65, linetype = "longdash")
+  geom_vline(xintercept=0.675, linetype = "longdash")
 ```
 TODO
 
 
-W zbiorze danych pozostawimy tylko tych, którzy mają ponad *0.65* wykonanych rodzajów badań.
+W zbiorze danych pozostawimy tylko tych, którzy mają ponad *0.675* wykonanych rodzajów badań.
 
 ```{r remove poorly tested patients}
-threshold <- 0.65
-patients_to_be_removed <- patient_last_results_count %>% 
+threshold <- 0.675
+patients_to_be_removed <- patient_last_results %>% 
   filter(number_of_tests < (ncol(df)-7) * threshold) %>% 
   select(PATIENT_ID)
 
