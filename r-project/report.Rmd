@@ -372,9 +372,10 @@ Z powyższego wykresu można wywnioskować kilka rzeczy:
 
 Jednocześnie nie znaleziono żadnych czynników, które podważają sens scalania rekordów.
 
-### Badania poszczególnych pacjentów
+### Badania pacjentów
 
-TODO Analiza ilości badań przeprowadzonych jednemu pacjentowi. 
+Kolejna analiza dotyczy ilości różnych atrybutów zbadanych u każdego pacjenta.
+W tym celu wyznaczamy wektor wartości ostatnich badań każdego z pacjentów, tj wynik każdego badania jest najmłodszy i różny od `NA`, jeśli dany pacjent nie ma przypisanego żadnego rekordu zawierajacego wartość danego atrybutu, to wartość ta nadal będzie oznakowana jako `NA`. 
 
 ```{r group by patient id}
 patient_last_results <- df %>% 
@@ -390,17 +391,22 @@ ggplot(
   ) + geom_histogram(binwidth = 1)
 ```
 
+Powyższy histogram obrazuje rozkład ilości badań wykonanych pacjentom.
+Zauważalna jest grupa wartości odstających - pacjentów którym wykonano znacząco mniej rodzajów badań.
+Rekordy tych pacjentów zostaną usunięte ze zbioru danych.
 
+#### Usuwanie pacjentów z znacząco mniejszą liczbą badań
 
-Zauważamy, że część pacjentów ma niewiele przeprowadzonych rodzajów badań. 
+W celu usunięcia pacjentów z mniejszą ilością badań, zostanie wyznaczony próg minimlanej ilości badań.
+Próg ten przyjmuje wartość między 0 a 1, należy go interpretować jako minimalną procentową ilość badań, które musi mieć wykonany pacjent.
+Maksimum stanowi ilość wszystkich badanych atrybutów, czyli `r ncol(df)-7`.
 
-TODO analityczne wybranie tej wartości  
+Wartość progu została wyznaczona analitycznie, w następujący sposób;
+dla każdej wartości progu z zakresu od 0.5 do 1 z krokiem 0.025, wyznaczona został procent pozostałych (nie odrzuconych) pacjentów, w stosunku do liczby początkowej, a także procent kolumn, które nie zawierają żadnej wartości `NA`.
 
-* procent pełnych kolumn
-* procent pozostawionych pacjentów
-* wartość progu
+Uzyskane dane zostały przedstawione na poniższym wykresie.
 
-```{r}
+```{r, echo=FALSE}
 veryfication_df <- function(n_tests, cols_cnt, th_seq) {
   cls_vec <- c()
   pts_vec <- c()
@@ -415,21 +421,23 @@ veryfication_df <- function(n_tests, cols_cnt, th_seq) {
     data.frame(threshold=th_seq, full_cols=cls_vec, patients_left=pts_vec)
 }
 
-to_plot <- veryfication_df(patient_last_results, ncol(df)-8, seq(0.5, 1.0, by=.025))
+to_plot <- veryfication_df(patient_last_results, ncol(patient_last_results)-8, seq(0.5, 1.0, by=.025))
+
+threshold <- 0.675
 
 ggplot(to_plot, aes(x=threshold)) +
   geom_line(aes(y=full_cols, color="Full columns")) + 
   geom_line(aes(y=patients_left, color="Patients left")) + 
   labs(color="Legend") +
-  geom_vline(xintercept=0.675, linetype = "longdash")
+  geom_vline(xintercept=threshold, linetype = "longdash") + 
+  ylab("percent")
 ```
-TODO
 
+Wybrana wartość została oznaczona na wykresie czarną przerywaną linią, wynosi `r threshold` i odpowiada `r round((ncol(df)-7)*threshold)` atrybutom.
+Taka wartość progowa pozwala na zachowanie znaczącej większości pacjentów w zbiorze, uzyskanie lepszego efektu poprzez jej zwiększenie, wiązałoby się ze znaczącym zmniejszeniem ilości pacjentów w zbiorze wynikowym.
 
-W zbiorze danych pozostawimy tylko tych, którzy mają ponad *0.675* wykonanych rodzajów badań.
 
 ```{r remove poorly tested patients}
-threshold <- 0.675
 patients_to_be_removed <- patient_last_results %>% 
   filter(number_of_tests < (ncol(df)-7) * threshold) %>% 
   select(PATIENT_ID)
@@ -440,7 +448,9 @@ df <- df %>% filter(PATIENT_ID %!in% patients_to_be_removed$PATIENT_ID)
 Po usunięciu rekordów pacjentów, u których przeprowadzono mało badań, pozostało `r length(unique(df$PATIENT_ID))` unikalnych pacjentów.
 
 
-### Brakujące wartości w kategoriach
+#### Brakujące wartości w kategoriach
+
+TODO
 
 ```{r number of missing values in each column}
 knitr::kable(
@@ -477,9 +487,11 @@ ggplot(df, aes(DAYS_TO_OUTCOME)) + geom_histogram(binwidth = 1)
 ```
 
 
-### Agregacja wierszy według daty badania
+## Agregacja wierszy według daty badania
 
-```{r g2}
+TODO
+
+```{r group by day}
 df <- df %>% 
   mutate(RE_DATE = floor_date(RE_DATE, '1 day')) %>% 
   group_by(PATIENT_ID, RE_DATE) %>% 
@@ -488,6 +500,7 @@ df <- df %>%
   ungroup() %>%
   rowwise() %>%
   mutate(number_of_tests=sum(!is.na(c_across(-(1:8)))), .after=OUTCOME)
+
 ggplot(df, aes(number_of_tests)) + geom_histogram(binwidth = 1)
 ```
 
