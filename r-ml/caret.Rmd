@@ -1,0 +1,99 @@
+---
+title: "caret"
+author: "Me"
+date: "11/16/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(C50)
+library(modeldata)
+library(caret)
+set.seed(23)
+data(mlc_churn)
+```
+
+```{r}
+summary(mlc_churn)
+```
+
+```{r}
+inTraining <- 
+    createDataPartition(
+        # atrybut do stratyfikacji
+        y = mlc_churn$churn,
+        # procent w zbiorze uczącym
+        p = .75,
+        # chcemy indeksy a nie listę
+        list = FALSE)
+
+churnTrain <- mlc_churn[inTraining[,1],]
+churnTest <- mlc_churn[-inTraining[,1],]
+```
+
+```{r}
+ctrl <- trainControl(
+    # powtórzona ocena krzyżowa
+    method = "repeatedcv",
+    # liczba podziałów
+    number = 2,
+    # liczba powtórzeń
+    repeats = 5,
+    classProbs = TRUE)
+```
+
+```{r}
+fitRF <- train(churn ~ .,
+             data = churnTrain,
+             method = "rf",
+             trControl = ctrl,
+             metric = "ROC",
+             ntree = 10)
+
+fitRF
+```
+
+```{r}
+fitKNN <- train(churn ~ .,
+             data = churnTrain,
+             method = "knn",
+             metric = "ROC",
+             trControl = ctrl)
+
+fitKNN
+```
+
+```{r}
+rfGrid <- expand.grid(mtry = 10:30)
+gridCtrl <- trainControl(
+    method = "repeatedcv",
+    summaryFunction = twoClassSummary,
+    classProbs = TRUE,
+    number = 2,
+    repeats = 5)
+fitTune <- train(churn ~ .,
+             data = churnTrain,
+             method = "rf",
+             preProc = c("center", "scale"),
+             trControl = gridCtrl,
+             tuneGrid = rfGrid,
+             ntree = 30)
+fitTune
+```
+
+
+```{r}
+resamps <- resamples(list(KNN = fitKNN,
+                          RF = fitRF#,
+                          #TN = fitTune
+                          ))
+summary(resamps)
+```
+
+```{r}
+bwplot(resamps)
+```
