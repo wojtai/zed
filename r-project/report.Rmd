@@ -423,7 +423,7 @@ veryfication_df <- function(n_tests, cols_cnt, th_seq) {
 
 to_plot <- veryfication_df(patient_last_results, ncol(patient_last_results)-8, seq(0.5, 1.0, by=.025))
 
-threshold <- 0.675
+threshold <- 0.65
 
 ggplot(to_plot, aes(x=threshold)) +
   geom_line(aes(y=full_cols, color="Full columns")) + 
@@ -450,11 +450,10 @@ Po usunięciu rekordów pacjentów, u których przeprowadzono mało badań, pozo
 
 #### Brakujące wartości w kategoriach
 
-TODO
+Poniższy histogram prezentuje ilość kolumn, według ilości brakujących wartości badań w każdej kolumnie, biorąc pod uwagę wszystkie wyniki każdego z pacjentów. Dodatkowo nazwy kolumn zostały oznaczone według przynależności do jednej z grup badań (sekcja "Współwystępowanie badań"), lub opsiane wartością NONE, jesli nie należą do żadnej z nich.
 
-```{r number of missing values in each column}
-knitr::kable(
-df %>% 
+```{r number of missing values in each column, echo=FALSE}
+column.counts <- df %>% 
   group_by(PATIENT_ID) %>% 
   fill(everything()) %>% 
   summarise_all(last) %>% 
@@ -465,31 +464,69 @@ df %>%
   group_by(name) %>%
   summarize(value=sum(value), .groups="drop") %>%
   arrange(value)
-)
+
+#knitr::kable(column.counts)
 
 ```
 
+```{r, echo=FALSE, out.width="100%"}
+class_labels <- as(items(sort(mc_itemsets, by="support")), "list")
+
+assign_color <- function(value, labels) {
+  sapply(value, function(x) {
+    if(x %in% labels[[1]]) {
+      "Complete blood count"
+    }
+    else if(x %in% labels[[3]]) {
+      "Blood biochemistry"
+    }
+    else if(x %in% labels[[10]]) {
+      "Coagulation"
+    } else {
+      "NONE"
+    }
+  })
+}
+
+
+plt_mis_vals <- ggplot(
+  column.counts %>% mutate(color=assign_color(name, class_labels)), 
+  aes(x=value, fill=color)
+  ) + 
+  geom_histogram(binwidth=2) + 
+  xlab("Number of missing values")
+
+ggplotly(plt_mis_vals)
+```
+
+Na powyższym wykresie możemy zaobserwować, że znacząca część badań została wykonana wszystkim pozostałym w zbiorze pacjentom. Dodatkowo, wszystkie testy z grupy *biochemii krwi* i *morfologii* zostały przeprowadzone u większości pacjentów.
+
+W kolejnych krokach można rozważyć odrzucenie pacjentów, którzy nie mają wykonanych wszystkich testów w tych dwóch grupach.
+
 ## Dodatkowe cechy
+
+* To be removed
 
 * TODO days to outcome
 
-```{r}
-df <- df %>%  
+```{r, eval=FALSE}
+days.to.outcome <- df %>%  
   mutate(DAYS_TO_OUTCOME = as.numeric(difftime(
     floor_date(DISCHARGE_TIME, "1 day"), 
     floor_date(RE_DATE, "1 day"), unit="days"
     ), unit="days"), .before=OUTCOME)
-df %>% summarise(DAYS_TO_OUTCOME = quantile(DAYS_TO_OUTCOME, c(0, 0.25, 0.5, 0.75,1)), quantile = c("min", "1st", "2nd", "3rd", "max"))
+days.to.outcome %>% summarise(DAYS_TO_OUTCOME = quantile(DAYS_TO_OUTCOME, c(0, 0.25, 0.5, 0.75,1)), quantile = c("min", "1st", "2nd", "3rd", "max"))
+
 ```
 
-```{r}
-ggplot(df, aes(DAYS_TO_OUTCOME)) + geom_histogram(binwidth = 1)
+```{r, eval=FALSE}
+ggplot(days.to.outcome, aes(DAYS_TO_OUTCOME)) + geom_histogram(binwidth = 1)
 ```
 
 
 ## Agregacja wierszy według daty badania
 
-TODO
+W zwiazku z brakiem wykrytycyh preciwskazań, w tym kroku przeprowadzono scalanie wyników badań każdego pacjenta, według dnia jego wykonania, tj. wszystkie rekordy z danego dnia zostaną scalone w jeden rekord, który zawiera wszystkie, najbardziej aktualne wyniki z danego dnia.
 
 ```{r group by day}
 df <- df %>% 
@@ -497,20 +534,28 @@ df <- df %>%
   group_by(PATIENT_ID, RE_DATE) %>% 
   fill(everything()) %>% 
   summarise_all(last) %>% 
-  ungroup() %>%
-  rowwise() %>%
-  mutate(number_of_tests=sum(!is.na(c_across(-(1:8)))), .after=OUTCOME)
-
-ggplot(df, aes(number_of_tests)) + geom_histogram(binwidth = 1)
+  ungroup()
 ```
+
+Po tej transformacji, w zbiorze danych pozostało `r nrow(df)` rekordów.
 
 ```{r}
-df <- df %>% select(-number_of_tests)
+ggplot(
+  df %>%
+  rowwise() %>%
+  mutate(number_of_tests=sum(!is.na(c_across(-(1:7)))), .after=OUTCOME), 
+  aes(number_of_tests)
+  ) + 
+  geom_histogram(binwidth = 1) + 
+  xlab("Number of not NA values")
+
 ```
 
+Powyższy histogram prezentuje ilość rekordów zawierających daną ilość wyników badań. Pomimo znacznej ilości rekordów zawierajacych tylko jeden wynik badania, obserwujemy wzrost w ilości rekordów zawierających ponad 40 wyników badań, w porównaniu do wyników przed agregacją. 
 
 # Zbiór danych
 
+TODO
 
 ```{r, fig.width=10, fig.height=40}
 ggplot(
@@ -547,20 +592,18 @@ cor_plot <- ggplot(cor_df, aes(colname, rowname, fill=value)) +
 ggplotly(cor_plot)
 ```
 
+TODO
+
 ```{r}
 knitr::kable(
 cor_df %>% filter(colname>rowname) %>% arrange(desc(abs(value))) %>% head(30)
 )
 ```
 
-```{r}
-knitr::kable(
-tidy(cor.test(df$LDH, as.numeric(df$OUTCOME=="CURED")))
-)
-```
+TODO
 
 ```{r}
-correlations <- df %>% mutate(isCURED=as.numeric(OUTCOME=="CURED")) %>% select(-c(1:2,4:8)) %>% 
+correlations <- df %>% mutate(isCURED=as.numeric(OUTCOME=="CURED")) %>% select(-c(1:2,4:7)) %>% 
   pivot_longer(!isCURED, names_to="attribute", values_to="x_val") %>%
   filter(!is.na(x_val)) %>%
   nest(data = c(x_val, isCURED)) %>%
@@ -575,12 +618,14 @@ correlations
 
 ## Analiza wypisów ze szpitala
 
+TODO
+
 ```{r, fig.width=10, fig.height=6, out.width="100%"}
 tseries <- df %>% 
   select(1:8) %>% 
   group_by(PATIENT_ID) %>% 
   summarize(across(everything(), last), .groups="drop") %>% 
-  select(-RE_DATE, -AGE, -GENDER, -DAYS_TO_OUTCOME, -PATIENT_ID) %>%
+  select(-RE_DATE, -AGE, -GENDER, -PATIENT_ID) %>%
   pivot_longer(ADMISSION_TIME:DISCHARGE_TIME, names_to="TYPE", values_to="DATE") %>%
   mutate(DATE = floor_date(DATE, "days")) %>%
   mutate(TYPE = str_replace(TYPE, "_TIME", "")) %>% 
@@ -595,8 +640,24 @@ tplot <- ggplot(tseries, aes(x=DATE, y=COUNT, fill=OUTCOME)) +
 ggplotly(tplot)
 ```
 
+# Klasyfikator
+
+TODO
+
+## Random forest
+
+TODO
+
+## Regresja logistyczna
+
+z czynnikami zakłocającymi
+
+TODO
+
 
 # Techniczne
+
+Ninejsza sekcja zawiera dodatkowe informacje o technicznych parametrach raportu
 
 ## Wszytkie użyte pakiety
 
