@@ -143,39 +143,8 @@ knitr::kable(
     )
   )
 ```
+
 Liczba unikatowych identyfikatorów pacjentów wynosi `r length(unique(df$PATIENT_ID))`.
-
-### Czas hosptializacji
-
-TODO
-
-Ta sekcja poświęcona jest analizie długości hospitalizacji poszczególnych grup pacjentów.
-
-```{r, echo=FALSE}
-ht <- df %>% select(1:7) %>% select(-RE_DATE) %>% 
-  group_by(PATIENT_ID) %>% summarise_all(last) %>% ungroup() %>% 
-  mutate(HOSPITALIZATION_TIME = difftime(ceiling_date(DISCHARGE_TIME, "1 day"), floor_date(ADMISSION_TIME, "1 day"), unit="days"))
-
-knitr::kable(
-ht %>% 
-  summarise(HOSPITALIZATION_TIME = quantile(HOSPITALIZATION_TIME, c(0, 0.25, 0.5, 0.75,1)), quantile = c("min", "1st", "2nd", "3rd", "max"))
-)
-```
-
-```{r, echo=FALSE}
-ggplot(ht, aes(as.numeric(HOSPITALIZATION_TIME, unit="days"), fill=OUTCOME)) + geom_histogram(binwidth = 1) + xlab("HOSPITALIZATION DAYS")
-```
-
-```{r, echo=FALSE}
-knitr::kable(
-ht %>%
-  select(-PATIENT_ID, -ADMISSION_TIME, -DISCHARGE_TIME) %>% group_by(OUTCOME, GENDER) %>% 
-  summarise_all(median)
-)
-```
-
-
-
 
 
 ### Wyniki badań
@@ -555,21 +524,25 @@ Powyższy histogram prezentuje ilość rekordów zawierających daną ilość wy
 
 # Zbiór danych
 
-TODO
+Ta sekcja jest poświęcona analizie danych w zbiorze.
 
-```{r, fig.width=10, fig.height=40}
+## Analiza wartości parametrów
+
+Poniższy zbiór wykresów przedstawia rozkład poszczególnych wyników badań, w zależności od rezultatu leczenia. Część wykresów jest nieczytelna przez występowanie wartości odstających (outlierów).
+
+```{r, fig.width=10, fig.height=40, echo=FALSE}
 ggplot(
   df %>% pivot_longer(hs_cTnI:creatinine) %>% filter(!is.na(value)),
   aes(x=OUTCOME, y=value)
 ) + geom_boxplot() +
-scale_x_discrete(labels = abbreviate) + 
 facet_wrap(name ~ ., scales="free",ncol=5)
 ```
 
+W niektórych wypadkach możemy zaobserwować istotne różnice między zbiorami pacjentów wyleczonych i zmarłych, są to między innymi parametry takie jak: `albumin`, `hs_CRP`, `lymphoocytes_percent` i `monocythes_percent`.
+
 ## Korelacja
 
-TODO
-
+Poniższy wykres przedstawia wartość współczynnika korelacji Pearsona między wszystkimi parametrami liczbowymi w zbiorze. Parametry nominalne `GENDER` i `OUTCOME`, ze względu na to zę mają tylko dwie wartości, zostały zakodowane jako `isMALE` i `isCURED`. Dodatkowo, ze parametr `2019_nCov_detection` ze względu na stałą wartość, został zamieniony na parametr `has_nCOV_test`, który indykuje czy w danym badaniu wykonano taki test.
 
 ```{r, message=FALSE, out.width = "100%", fig.align="center", fig.width=10, fig.height=8}
 cor_mat <- cor(
@@ -592,7 +565,7 @@ cor_plot <- ggplot(cor_df, aes(colname, rowname, fill=value)) +
 ggplotly(cor_plot)
 ```
 
-TODO
+Ponadto w poniższej tabeli zebrano 30 par atrybutów z największym współczynnikiem korelacji Pearsona.
 
 ```{r}
 knitr::kable(
@@ -602,8 +575,10 @@ cor_df %>% filter(colname>rowname) %>% arrange(desc(abs(value))) %>% head(30)
 
 TODO
 
-```{r}
-correlations <- df %>% mutate(isCURED=as.numeric(OUTCOME=="CURED")) %>% select(-c(1:2,4:7)) %>% 
+```{r, echo=FALSE}
+correlations <- df %>% mutate(isCURED=as.numeric(OUTCOME=="CURED")) %>% 
+  select(-c(1:2,4:7)) %>% 
+  select(-"2019_nCov_detection") %>% # remove this property because it has no standard deviation
   pivot_longer(!isCURED, names_to="attribute", values_to="x_val") %>%
   filter(!is.na(x_val)) %>%
   nest(data = c(x_val, isCURED)) %>%
@@ -639,6 +614,34 @@ tplot <- ggplot(tseries, aes(x=DATE, y=COUNT, fill=OUTCOME)) +
 
 ggplotly(tplot)
 ```
+
+### Czas hosptializacji
+
+TODO
+
+Ta sekcja poświęcona jest analizie długości hospitalizacji poszczególnych grup pacjentów.
+
+```{r, echo=FALSE}
+ht <- df %>% select(1:7) %>% select(-RE_DATE) %>% 
+  group_by(PATIENT_ID) %>% summarise_all(last) %>% ungroup() %>% 
+  mutate(HOSPITALIZATION_TIME = difftime(floor_date(DISCHARGE_TIME, "1 day"), floor_date(ADMISSION_TIME, "1 day"), unit="days"))
+
+knitr::kable(
+ht %>% 
+  group_by(OUTCOME) %>%
+  summarise(
+    HOSPITALIZATION_TIME = quantile(HOSPITALIZATION_TIME, c(0, 0.25, 0.5, 0.75,1)), 
+    stat = c("min", "q1", "median", "q3", "max"), 
+    .groups="drop"
+  ) %>%
+  pivot_wider(names_from=OUTCOME, values_from=HOSPITALIZATION_TIME)
+)
+```
+
+```{r, echo=FALSE}
+ggplot(ht, aes(as.numeric(HOSPITALIZATION_TIME, unit="days"), fill=OUTCOME)) + geom_histogram(binwidth = 1) + xlab("HOSPITALIZATION DAYS")
+```
+
 
 # Klasyfikator
 
