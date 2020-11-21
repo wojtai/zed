@@ -33,6 +33,7 @@ library(purrr)
 library(broom)
 library(tibble)
 library(plotly)
+library(gridExtra)
 ```
 
 ```{r utils, echo=FALSE}
@@ -63,8 +64,10 @@ Atrybuty zbioru danych można potwierdzić na dwie grupy:
 Poza danymi niedostępnymi (`NA`) w zbiorze danych wsytępują dane brakujące, oznakowane wartością `-1`.
 Poniższa tabela pokazuje ilość takich wartości w każdej kolumnie, o ile te wartości występują.
 
-```{r}
+```{r, echo=FALSE}
+knitr::kable(
 df %>% pivot_longer(-c(RE_DATE,`Admission time`, `Discharge time`)) %>% filter(value==-1) %>% count(name)
+)
 ```
 
 
@@ -76,11 +79,13 @@ df <- df %>% mutate(`Platelet count` = if(is.na(`Platelet count`) || `Platelet c
 
 Dla kolumny `2019-nCoV nucleic acid detection` sprawdzimy całkowitą ilość wartości różnych od `NA`.
 
-```{r}
+```{r, echo=FALSE}
+knitr::kable(
 df %>% 
   pivot_longer(-c(RE_DATE,`Admission time`, `Discharge time`)) %>% 
   filter(name=="2019-nCoV nucleic acid detection") %>% 
   filter(!is.na(value)) %>% count(name)
+)
 ```
 
 Wszystkie wartości w kolumnie `2019-nCoV nucleic acid detection` różne od `NA` wynoszą `-1`, w związku z tym ta kolumna jest właściwie nieprzydatna. Mimo to na ten moment postanowiono nie zmieniać wartości w tej kolumnie, ewentualne zmiany można wykonać w dalszych krokach.
@@ -106,7 +111,7 @@ Pola `GENDER` i `OUTCOME` zostaną dodatkowo zmienione na typ `factor` - z typu 
 Do tego trzeba przeprowadzić identyfikację typu płci.
 
 Wartości płci nie są jawnie opisane, w artykule źródłowym została natomiast podana proporcja pacjentów danej płci, co powinno umożliwić okreslenie właściwego przypisania.
-```{r}
+```{r, echo=FALSE}
 knitr::kable(
 df %>% group_by(PATIENT_ID) %>% summarise_all(last) %>% count(GENDER) %>% rename("count" = "n"),
 align="lc"
@@ -120,19 +125,20 @@ Wniosek:
 * Kobiety - wartość `2`
 
 ```{r factorize}
-df <- df %>% mutate(across("GENDER", ~factor(., levels=c(1,2), labels=c("MALE", "FEMALE")))) %>%
+df <- df %>% 
+  mutate(across("GENDER", ~factor(., levels=c(1,2), labels=c("MALE", "FEMALE")))) %>%
   mutate(across("OUTCOME", ~factor(., levels=c(0,1), labels=c("CURED","DECEASED"))))
 ```
 
 Poniżej można zapoznać się z analizą wartości dla atrybutów ogólnych.
 Wartość atrybutu `RE_DATE` ma unikalną wartość dla kazdego wiersza.
 
-```{r re_date summary}
+```{r re_date summary, echo=FALSE}
 knitr::kable(summary(select(df, RE_DATE)))
 ```
 Pozostałe z atrybtów ogólnych, są wspólne dla każdego pacjenta, zastosowano transformację do zniwelowania skutków duplikacji.
 
-```{r top summary}
+```{r top summary, echo=FALSE}
 options(knitr.kable.NA = '')
 knitr::kable(
   summary(
@@ -346,7 +352,7 @@ Jednocześnie nie znaleziono żadnych czynników, które podważają sens scalan
 Kolejna analiza dotyczy ilości różnych atrybutów zbadanych u każdego pacjenta.
 W tym celu wyznaczamy wektor wartości ostatnich badań każdego z pacjentów, tj wynik każdego badania jest najmłodszy i różny od `NA`, jeśli dany pacjent nie ma przypisanego żadnego rekordu zawierajacego wartość danego atrybutu, to wartość ta nadal będzie oznakowana jako `NA`. 
 
-```{r group by patient id}
+```{r group by patient id, echo=FALSE}
 patient_last_results <- df %>% 
   group_by(PATIENT_ID) %>% 
   fill(everything()) %>% 
@@ -357,7 +363,9 @@ patient_last_results <- df %>%
 ggplot(
   patient_last_results, 
   aes(number_of_tests)
-  ) + geom_histogram(binwidth = 1)
+  ) + 
+  geom_histogram(binwidth = 1) + 
+  xlab("Number of not NA values")
 ```
 
 Powyższy histogram obrazuje rozkład ilości badań wykonanych pacjentom.
@@ -472,26 +480,6 @@ Na powyższym wykresie możemy zaobserwować, że znacząca część badań zost
 
 W kolejnych krokach można rozważyć odrzucenie pacjentów, którzy nie mają wykonanych wszystkich testów w tych dwóch grupach.
 
-## Dodatkowe cechy
-
-* To be removed
-
-* TODO days to outcome
-
-```{r, eval=FALSE}
-days.to.outcome <- df %>%  
-  mutate(DAYS_TO_OUTCOME = as.numeric(difftime(
-    floor_date(DISCHARGE_TIME, "1 day"), 
-    floor_date(RE_DATE, "1 day"), unit="days"
-    ), unit="days"), .before=OUTCOME)
-days.to.outcome %>% summarise(DAYS_TO_OUTCOME = quantile(DAYS_TO_OUTCOME, c(0, 0.25, 0.5, 0.75,1)), quantile = c("min", "1st", "2nd", "3rd", "max"))
-
-```
-
-```{r, eval=FALSE}
-ggplot(days.to.outcome, aes(DAYS_TO_OUTCOME)) + geom_histogram(binwidth = 1)
-```
-
 
 ## Agregacja wierszy według daty badania
 
@@ -508,7 +496,7 @@ df <- df %>%
 
 Po tej transformacji, w zbiorze danych pozostało `r nrow(df)` rekordów.
 
-```{r}
+```{r, echo=FALSE}
 ggplot(
   df %>%
   rowwise() %>%
@@ -567,7 +555,7 @@ ggplotly(cor_plot)
 
 Ponadto w poniższej tabeli zebrano 30 par atrybutów z największym współczynnikiem korelacji Pearsona.
 
-```{r}
+```{r, echo=FALSE}
 knitr::kable(
 cor_df %>% filter(colname>rowname) %>% arrange(desc(abs(value))) %>% head(30)
 )
@@ -595,7 +583,7 @@ correlations
 
 TODO
 
-```{r, fig.width=10, fig.height=6, out.width="100%"}
+```{r, fig.width=10, fig.height=6, out.width="100%", echo=FALSE}
 tseries <- df %>% 
   select(1:8) %>% 
   group_by(PATIENT_ID) %>% 
@@ -621,26 +609,25 @@ TODO
 
 Ta sekcja poświęcona jest analizie długości hospitalizacji poszczególnych grup pacjentów.
 
-```{r, echo=FALSE}
+```{r, echo=FALSE, out.width="100%", fig.width=10}
 ht <- df %>% select(1:7) %>% select(-RE_DATE) %>% 
   group_by(PATIENT_ID) %>% summarise_all(last) %>% ungroup() %>% 
   mutate(HOSPITALIZATION_TIME = difftime(floor_date(DISCHARGE_TIME, "1 day"), floor_date(ADMISSION_TIME, "1 day"), unit="days"))
 
-knitr::kable(
-ht %>% 
-  group_by(OUTCOME) %>%
-  summarise(
-    HOSPITALIZATION_TIME = quantile(HOSPITALIZATION_TIME, c(0, 0.25, 0.5, 0.75,1)), 
-    stat = c("min", "q1", "median", "q3", "max"), 
-    .groups="drop"
-  ) %>%
-  pivot_wider(names_from=OUTCOME, values_from=HOSPITALIZATION_TIME)
-)
+ht.boxplot <- ggplot(ht, aes(OUTCOME, as.numeric(HOSPITALIZATION_TIME, unit="days"))) + 
+  geom_boxplot() + 
+  ylab("HOSPITALIZATION DAYS")
+
+ht.hist <- ggplot(ht, aes(as.numeric(HOSPITALIZATION_TIME, unit="days"), fill=OUTCOME)) + 
+  geom_histogram(binwidth = 1) + 
+  xlab("HOSPITALIZATION DAYS")
+
+grid.arrange(ht.boxplot, ht.hist, ncol=2, widths=1:2)
+
 ```
 
-```{r, echo=FALSE}
-ggplot(ht, aes(as.numeric(HOSPITALIZATION_TIME, unit="days"), fill=OUTCOME)) + geom_histogram(binwidth = 1) + xlab("HOSPITALIZATION DAYS")
-```
+
+TODO jak to zrobili w artykule odrzucając tylu pacjentów DECEASED
 
 
 # Klasyfikator
