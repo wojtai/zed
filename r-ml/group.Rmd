@@ -1,0 +1,71 @@
+---
+title: "group"
+author: "Me"
+date: "11/23/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(fpc)
+library(factoextra)
+
+set.seed(23)
+face <- rFace(1000, p=2, dMoNo=3)
+df = data.frame(x=face[,1], y=face[,2])
+labels = as.integer(attr(face,"grouping"))
+```
+
+```{r}
+ggplot(df, aes(x,y)) + geom_point()
+```
+
+```{r}
+km.res <- eclust(df, "kmeans", k = 3, nstart = 25, graph = F)
+fviz_cluster(km.res, palette = "jco", ggtheme = theme_minimal())
+```
+
+```{r}
+table(km.res$cluster, labels)
+```
+
+```{r}
+km.res <- eclust(df, "kmeans", k = 3, nstart = 25, graph = F)
+fviz_silhouette(km.res, palette = "jco", ggtheme = theme_classic(), print.summary = F)
+```
+```{r}
+pam.res <- eclust(df, "pam", k = 3, graph = F)
+fviz_cluster(pam.res, palette = "jco", ggtheme = theme_minimal())
+```
+```{r}
+table(pam.res$cluster, labels)
+```
+
+
+```{r}
+hc.res <- eclust(df, "hclust", k = 6, hc_metric = "euclidean", hc_method = "ward.D2", graph = F)
+#fviz_dend(hc.res, show_labels = F, palette = "jco", as.ggplot = T)
+```
+
+```{r}
+table(hc.res$cluster, labels)
+```
+
+```{r}
+db.res <- fpc::dbscan(df, eps=0.7, MinPts=5)
+fviz_cluster(db.res, df, stand=F, ellipse=F, show.clust.cent=F, geom="point", palette="jco", ggtheme= theme_classic())
+```
+```{r}
+table(db.res$cluster, labels)
+```
+
+
+```{r}
+ggplot(df, aes(x, y, color=factor(predicted))) + 
+    geom_point() + 
+    theme_bw()
+```

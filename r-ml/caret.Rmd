@@ -51,7 +51,6 @@ fitRF <- train(churn ~ .,
              data = churnTrain,
              method = "rf",
              trControl = ctrl,
-             metric = "ROC",
              ntree = 10)
 
 fitRF
@@ -71,8 +70,8 @@ fitKNN
 rfGrid <- expand.grid(mtry = 10:30)
 gridCtrl <- trainControl(
     method = "repeatedcv",
-    summaryFunction = twoClassSummary,
-    classProbs = TRUE,
+    #summaryFunction = twoClassSummary,
+    #classProbs = TRUE,
     number = 2,
     repeats = 5)
 fitTune <- train(churn ~ .,
@@ -88,8 +87,8 @@ fitTune
 
 ```{r}
 resamps <- resamples(list(KNN = fitKNN,
-                          RF = fitRF#,
-                          #TN = fitTune
+                          RF = fitRF,
+                          TN = fitTune
                           ))
 summary(resamps)
 ```
