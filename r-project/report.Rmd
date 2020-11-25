@@ -34,6 +34,7 @@ library(broom)
 library(tibble)
 library(plotly)
 library(gridExtra)
+library(caret)
 ```
 
 ```{r utils, echo=FALSE}
@@ -532,7 +533,7 @@ W niektórych wypadkach możemy zaobserwować istotne różnice między zbiorami
 
 Poniższy wykres przedstawia wartość współczynnika korelacji Pearsona między wszystkimi parametrami liczbowymi w zbiorze. Parametry nominalne `GENDER` i `OUTCOME`, ze względu na to zę mają tylko dwie wartości, zostały zakodowane jako `isMALE` i `isCURED`. Dodatkowo, ze parametr `2019_nCov_detection` ze względu na stałą wartość, został zamieniony na parametr `has_nCOV_test`, który indykuje czy w danym badaniu wykonano taki test.
 
-```{r, message=FALSE, out.width = "100%", fig.align="center", fig.width=10, fig.height=8}
+```{r, message=FALSE, echo=FALSE, out.width = "100%", fig.align="center", fig.width=10, fig.height=8}
 cor_mat <- cor(
   x = df %>% 
     mutate(isMALE = as.numeric(GENDER=="MALE"), 
@@ -561,7 +562,14 @@ cor_df %>% filter(colname>rowname) %>% arrange(desc(abs(value))) %>% head(30)
 )
 ```
 
-TODO
+Można zaobserwować wiele mocno skorelowanych parametrów, m.in:
+
+* miary `MPV`, `P-LCR` i `PDW` odnoszą się do wielkości płytek krwi (odpowiednio: *mean platelet volume*, *platelet - large cell ratio* i *platelet distribution width*), więc ich wysokie skorelowanie jest łatwe do wyjaśnienia.
+* `lymphocytes_percent` i `neutrophils_percent` - określają proporcje białych krwniek danego typu w krwi pacjenta
+* `INR` z definicji jest właściwie liniowo zależna od `prothrombin_time`
+* `direct_bilirubin` jest składową `total_bilirubin`
+
+Dodatkowo sprawdzona zostanie korelacja poszczególnych parametrów z wynikiem leczenia chorego (`isCured`). Poniższa tabela zawiera wartości korelacji Pearsona wraz z przedziałem ufności i p-wartością (wszystkie z pokazanych korelacji są istotne statysytycznie) dla 15 najmocniej skorelowanych parametrów.
 
 ```{r, echo=FALSE}
 correlations <- df %>% mutate(isCURED=as.numeric(OUTCOME=="CURED")) %>% 
@@ -578,6 +586,14 @@ knitr::kable(
 correlations
 )
 ```
+
+Z powyższej tabli wynika, że wpływ na wynik choroby pacjenta mają: 
+
+* stan układu odpornościowego (wysoka proporcja `lymphocyte` i niska proporcja `neutrophils`)
+* stan układu krzepnięcia (`prothrombin_activity`, `D_D_dimer`, `FDPs`)
+* `hs_CRP` i `LDH` których podwyższony stan wskazuje na dużą ilość uszkodzonych komórek
+* wysoki poziom `albumin` - białek odpowiadających za transport odczynników we krwi (w tym leków) i regulację ilości wody we krwi
+* wiek
 
 ## Analiza wypisów ze szpitala
 
@@ -633,6 +649,60 @@ TODO jak to zrobili w artykule odrzucając tylu pacjentów DECEASED
 # Klasyfikator
 
 TODO
+
+mamy określić który pacjent przeżyje, więc dane zostaną zredukowane tylko do pacjentów, pozostawiając ostatnią wartość badania
+
+wcześniej, ze zbioru zostaną usunięte te wyniki badań, które zostały uzyskane przed wypisem pacjenta ze szpitala
+
+```{r}
+patients <- df %>% 
+  filter(RE_DATE < DISCHARGE_TIME) %>%
+  group_by(PATIENT_ID) %>% 
+  fill(everything()) %>% 
+  summarise_all(last) %>% 
+  ungroup() %>%
+  select(-PATIENT_ID, -ADMISSION_TIME, -DISCHARGE_TIME, -RE_DATE) %>%
+  select(-'2019_nCov_detection')
+```
+
+## Wybór cech
+
+TODO
+
+```{r}
+features <- class_labels[[3]]
+
+patients <- patients %>% filter(complete.cases(patients %>% select(all_of(features))))
+
+to.drop <- patients %>% 
+  pivot_longer(4:76) %>% 
+  mutate(value=is.na(value)) %>% 
+  group_by(name) %>% 
+  summarize(NAs = sum(value), .groups="drop") %>% 
+  filter(NAs != 0)
+#to.drop %>% arrange(NAs)
+
+patients <- patients %>% select(-to.drop$name)
+
+all(complete.cases(patients))
+```
+
+
+```{r}
+fs.control <- trainControl(method="repeatedcv", number=10, repeats=3)
+fs.model <- train(OUTCOME~., 
+                  data=patients, 
+                  method="rf", 
+                  trControl=fs.control, 
+                  mtree=30
+                  )
+```
+
+
+```{r}
+varImp(fs.model, scale=FALSE)
+```
+
 
 ## Random forest
 
