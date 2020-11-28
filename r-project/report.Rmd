@@ -18,6 +18,10 @@ output:
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+# Executive summary
+
+TODO
+
 # Użyte biblioteki
 
 ```{r libraries, message=FALSE}
@@ -680,11 +684,10 @@ Jednocześnie poczyniona obserwacja każe się zastanowić nad dokładnością k
 
 # Klasyfikator
 
-TODO
+Niniejsza sekcja opisuje proces tworzenia klasyfikatora, którego zadaniem jest ocena, czy dany pacjent przeżył chorobę spowodowaną zakażeniem COVID-19.
 
-mamy określić który pacjent przeżyje, więc dane zostaną zredukowane tylko do pacjentów, pozostawiając ostatnią wartość badania
-
-wcześniej, ze zbioru zostaną usunięte te wyniki badań, które zostały uzyskane przed wypisem pacjenta ze szpitala
+Dla tego celu, zbiór wyników badań zostanie zredukowany do danych pacjentów, zawierając ostatni, tj. najbardziej aktualny wynik badania.
+Wcześniej, ze zbioru zostaną usunięte te wyniki badań, które zostały uzyskane przed wypisem pacjenta ze szpitala. Dodatkowo usunięte zostanę atrybuty `PATIENT_ID`, `ADMISSION_TIME`, `DISCHARGE_TIME` i `RE_DATE` oraz `2019_nCOV-detection` (ze względu na stałe wartości).
 
 ```{r}
 patients <- df %>% 
@@ -699,9 +702,13 @@ patients <- df %>%
 
 ## Wybór cech
 
-TODO
+W związku z tym, że dla części pacjentów nie ma dostępnych wszystkich wyników badań, niezbędne jest dalsze przetwarzanie zbioru danych.
 
-```{r}
+Grupa cech "Biochemia krwi" (sekcja **Współwystępowanie kategorii**) została określona jako minimalny zbiór cech, które powinny być obecne w każdym rekordzie. Ten wybór jest uzasadniony tym, że autorzy [artykułu](https://www.nature.com/articles/s42256-020-0180-7) źródłowego wśrod najbardziej znaczących cech wskazali `LDH` i `hs_CRP`, które należą do tej grupy.
+
+Po odrzuceniu rekordów, które nie zawieraływ szystkich wskazanych cech, usunięto kolumny, które zawierały wartości `NA`. W wyniku tego przetwarzania uzyskano czysty zbiór, który może być wykorzystany do trenowania klasyfikatora.
+
+```{r feature selection}
 features <- class_labels[[3]]
 
 patients <- patients %>% filter(complete.cases(patients %>% select(all_of(features))))
@@ -718,12 +725,22 @@ patients <- patients %>% select(-to.drop$name)
 
 all(complete.cases(patients))
 ```
+Ostateczna wersja zbioru zawiera `r nrow(patients)` rekordów pacjentów. Poniższa lista zawier natomiast nazwy wszystkich `r ncol(patients) - 1` cech wykorzystanych do klasyfikacji.
 
+```{r feature-list, echo=FALSE}
+features <- colnames(patients)
+features[features != "OUTCOME"]
+```
 
-TODO
+Zbalansowanie zbioru prezentuje się następująco
 
+```{r, echo=FALSE}
+summary(patients$OUTCOME)
+```
 
-```{r}
+W kolejnym kroku zbiór został podzielony na testowy i treningowy, odkładając 25% danych do testowania klasyfikatorów.
+
+```{r train-test split}
 set.seed(23)
 inTraining <- createDataPartition(
         y = patients$OUTCOME,
@@ -737,9 +754,12 @@ patientsTest  <- patients[-inTraining[,1],]
 
 ## Klaysfikatory 
 
+W tej części zostaną wytrenowane i przetestowane dwa klasyfikatory - *Random Forest* i *SVM*.
+W trenowaniu zostanie wykorzystana powtarzalna walidacja krzyżowa, z podziałem na 10 części i trzema powtórzeniami.
+
 ### Random forest
 
-TODO
+W modelu *Random Forest* optymlizowany będzie parametr `mtree` określający ilość parametrów, które trafią do drzewa w każdej rundzie podziałów. Jednocześnie ustalono, że wartość parametru określającą ilość drzew w lesie `ntree` będzie wynosiła 30.
 
 ```{r}
 set.seed(23)
@@ -755,11 +775,17 @@ rf.fit <- train(OUTCOME ~ .,
 rf.fit
 ```
 
+Wyniki uzyskane w trakcie procesu trenowania charakteryzują się wysoką dokładnością i wartością miary Kappa, co suegeruje że klasyfikator moze dobrze wykonywać swoje zadanie. W kolejnych krokach te wyniki zostaną zweryfikowane na zbiorze testowym.
 
 ```{r}
+set.seed(23)
 rf.predict <- predict(rf.fit, newdata=patientsTest)
 confusionMatrix(data = rf.predict, patientsTest$OUTCOME)
 ```
+
+Klasyfikator pomylił się w 4 przypadkach (na 85) osiągając dokładność na poziomie 95%.
+
+W związkuz  tym, że modeł *Random Forest* jest łatwo interpretowalny, w łatwy sposób można uzyskać ważność cech, która jest przedstawiona w tabeli poniżej.
 
 ```{r, message=FALSE, echo=FALSE}
 vi <- varImp(rf.fit, scale=FALSE)
@@ -768,7 +794,11 @@ vi$importance %>% arrange(desc(Overall)) %>% head(5)
 )
 ```
 
+Należy zauważyć, że cechy `LDH` i `hs_CRP`, a także `lymphocyte_percent` są ważnymi czynnikami w wytrenowanym klasyfikatorze, co jest w zgodzie z wnioskami autorów ze źródłowego artykułu.
+
 ### SVM
+
+Dla modelu *Support Vector Machine* z kernelem liniowym, optymalizowany jest prametr kosztu.
 
 ```{r svm fit}
 set.seed(23)
@@ -784,11 +814,15 @@ svm.fit <- train(OUTCOME ~ .,
 svm.fit
 ```
 
+Podobnie jak model *Random Forest*, model *SVM* również osiąga wysokie wyniki w klasyfikacji na etapie treningu.
+
 ```{r svm predict}
+set.seed(23)
 svm.predict <- predict(svm.fit, newdata=patientsTest)
 confusionMatrix(data = svm.predict, patientsTest$OUTCOME)
 ```
 
+Na etapie testu model *SVM* popełnił jedynie 3 błędy (ponad 96% dokładności), przez co można go uznać za minimalnie lepszy od modelu *Random Forest*.
 
 # Analiza przeżycia
 
@@ -847,7 +881,7 @@ res <- res %>% filter(p.value < .05) %>% arrange(desc(HR))
 
 Poniższa tabela prezentuje czynniki zwiększające ryzyko śmierci pacjenta. Odfiltrowane zostały czynniki nieistotne statysytcznie (*p-wartość > 0.05*) oraz te, gdzie parametr *HR* nie przekroczył wartości *1.1*.
 
-```{r}
+```{r, echo=FALSE}
 knitr::kable(
   res %>% filter(HR > 1.1)
 )
@@ -859,7 +893,7 @@ Pozostałe złe prognostyki, dotyczą między innymi zwiększonej obecności neu
  
 Poniższa tabela przedstawia dobre prognostyki jeśli chodzi o skutki leczenia. Ponownie odlitrowano czynniki nieistotne statystycznie (*p-wartość > 0.05*), oraz pozostawion wartości, gdzie parametr *HR* ma wartość poniżej *0.9*.
 
-```{r}
+```{r, echo=FALSE}
 knitr::kable(
   res %>% filter(HR < 0.9)
 )
