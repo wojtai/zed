@@ -35,6 +35,7 @@ library(tibble)
 library(plotly)
 library(gridExtra)
 library(caret)
+library(survival)
 ```
 
 ```{r utils, echo=FALSE}
@@ -515,6 +516,37 @@ Powyższy histogram prezentuje ilość rekordów zawierających daną ilość wy
 
 Ta sekcja jest poświęcona analizie danych w zbiorze.
 
+## Analiza wybranych parametrów podstawowych
+
+
+### Płeć
+
+Poniższy wykres prezentuje ilość przypadków z dany rezultatem leczenia w stosunku do płci pacjenta. Obserwujemy relatywnie małą ilość zmarłych kobiet w stosunku do zmarłych mężczyzn.
+
+```{r, echo=FALSE}
+gender.plot <- ggplot(
+  df %>% select(PATIENT_ID, GENDER, OUTCOME) %>% distinct() %>% count(GENDER, OUTCOME) %>% rename(COUNT = n),
+  aes(x=OUTCOME, y=GENDER, size=COUNT, color=GENDER)
+) + geom_point()
+
+ggplotly(gender.plot)
+```
+
+### Wiek
+
+Poniższy wykres przedstawia rozkład wieku w zależności od wyniku leczenia i płci pcajenta. Większość ze zmarłych pacjentów ma powyżej 60 lat, co sugeruje że grupa starszych pacjentów jest bardziej narażona na śmierć w wyniku choroby spowodowanej zarażeniem wirusem.
+
+```{r, echo=FALSE}
+age <- ggplot(
+  df %>% select(PATIENT_ID, AGE, GENDER, OUTCOME) %>% distinct(),
+  aes(x=OUTCOME, y=AGE)
+) + 
+  geom_boxplot() +
+  facet_grid(. ~ GENDER)
+
+ggplotly(age)
+```
+
 ## Analiza wartości parametrów
 
 Poniższy zbiór wykresów przedstawia rozkład poszczególnych wyników badań, w zależności od rezultatu leczenia. Część wykresów jest nieczytelna przez występowanie wartości odstających (outlierów).
@@ -595,9 +627,9 @@ Z powyższej tabli wynika, że wpływ na wynik choroby pacjenta mają:
 * wysoki poziom `albumin` - białek odpowiadających za transport odczynników we krwi (w tym leków) i regulację ilości wody we krwi
 * wiek
 
-## Analiza wypisów ze szpitala
+## Analiza przyjęć i wypisów
 
-TODO
+Poniższy wykres pokazuje ilość pacjentów przyjętych i wypisanych danego dnia ze szpitala, z podziałem na wynik leczenia.
 
 ```{r, fig.width=10, fig.height=6, out.width="100%", echo=FALSE}
 tseries <- df %>% 
@@ -619,11 +651,11 @@ tplot <- ggplot(tseries, aes(x=DATE, y=COUNT, fill=OUTCOME)) +
 ggplotly(tplot)
 ```
 
+Analiza przyjęć i wypisów nie przynosi żadnych istotnych wniosków. Obserwujemy jedynie zwiększoną ilość wypisów wyleczonych pacjentów między 16 a 20 lutego. Obserwowane luki w czasach przyjęć i wypisów mogą wynikać z podziału zbioru danych na część treningową (analizowaną) i testową (wyłączoną z niniejszej analizy).
+
 ### Czas hosptializacji
 
-TODO
-
-Ta sekcja poświęcona jest analizie długości hospitalizacji poszczególnych grup pacjentów.
+Poniżesz wykresy prezentują odpowiednio rozkład czasu pobytu pacjentów w szpitalu w zależności od wyników leczenia a także histogram długości pobytu w szpitalu z podziałem na wynik leczenia.
 
 ```{r, echo=FALSE, out.width="100%", fig.width=10}
 ht <- df %>% select(1:7) %>% select(-RE_DATE) %>% 
@@ -642,9 +674,9 @@ grid.arrange(ht.boxplot, ht.hist, ncol=2, widths=1:2)
 
 ```
 
+Obserwujemy, że w grupy pacjentów, którzy zmarli, czas pobytu w szpitalu wynosił do 10 dni (75% przypadków). Tę cechę można potencjalnie wykorzystać przy przygotowaniu klasyfikatora.
 
-TODO jak to zrobili w artykule odrzucając tylu pacjentów DECEASED
-
+Jednocześnie poczyniona obserwacja każe się zastanowić nad dokładnością klasyfikatora zaproponowanego przez autorów [artykułu](https://www.nature.com/articles/s42256-020-0180-7), z którego pochodzą dane. Badacze twierdzą, że dokładność wynosi ponad 90% nawet 10 dni przed poznaniem dokłądnego wyniku leczenia. Z drugiej strony, odrzucenie badań które powstały później, niż 10 dni przed pozniem ostatecznego wyniku, skutkuje odrzuceniem danych o większości zmarłych pacjentów, co pozostawia niezbalansowany zbiór danych. Jak wiadomo dokładność klasyfikatora nie jest odpowiednią do zastosowania metryką przy klasyfikacji niezbalansowanych zbiorów, a wartość miary *Kappa* nie została podana w treści artykułu, co utrudnia ocenienie jakości zaprezentowanego w artykule modelu.
 
 # Klasyfikator
 
@@ -688,31 +720,162 @@ all(complete.cases(patients))
 ```
 
 
+TODO
+
+
 ```{r}
-fs.control <- trainControl(method="repeatedcv", number=10, repeats=3)
-fs.model <- train(OUTCOME~., 
-                  data=patients, 
-                  method="rf", 
-                  trControl=fs.control, 
-                  mtree=30
-                  )
+set.seed(23)
+inTraining <- createDataPartition(
+        y = patients$OUTCOME,
+        p = .75,
+        list = FALSE)
+
+patientsTrain <- patients[ inTraining[,1],]
+patientsTest  <- patients[-inTraining[,1],]
+```
+
+
+## Klaysfikatory 
+
+### Random forest
+
+TODO
+
+```{r}
+set.seed(23)
+tc <- trainControl(method="repeatedcv", number=10, repeats=3)
+rf.grid <- expand.grid(mtry = 5:30)
+rf.fit <- train(OUTCOME ~ .,
+             data = patientsTrain,
+             method = "rf",
+             preProc = c("center", "scale"),
+             trControl = tc,
+             tuneGrid = rf.grid,
+             ntree = 30)
+rf.fit
 ```
 
 
 ```{r}
-varImp(fs.model, scale=FALSE)
+rf.predict <- predict(rf.fit, newdata=patientsTest)
+confusionMatrix(data = rf.predict, patientsTest$OUTCOME)
+```
+
+```{r, message=FALSE, echo=FALSE}
+vi <- varImp(rf.fit, scale=FALSE)
+knitr::kable(
+vi$importance %>% arrange(desc(Overall)) %>% head(5)
+)
+```
+
+### SVM
+
+```{r svm fit}
+set.seed(23)
+# svmLinear2
+svm.grid <- expand.grid(cost = c(.25, .5, .75, 1, 1.25))
+svm.fit <- train(OUTCOME ~ .,
+             data = patientsTrain,
+             method = "svmLinear2",
+             preProc = c("center", "scale"),
+             trControl = tc,
+             tuneGrid = svm.grid
+             )
+svm.fit
+```
+
+```{r svm predict}
+svm.predict <- predict(svm.fit, newdata=patientsTest)
+confusionMatrix(data = svm.predict, patientsTest$OUTCOME)
 ```
 
 
-## Random forest
+# Analiza przeżycia
 
-TODO
+W tej sekcji wyniki badań pacjentów zostaną poddane analizie metodą regresji Coxa.
 
-## Regresja logistyczna
+Zbiór danych został poddany następującym zmianom:
 
-z czynnikami zakłocającymi
+* usunięto wyniki badań, które mają `RE_DATE` późniejszy niż `DISCHARGE_TIME`
+* dodano kolumnę `TIME` która określa liczbę dni, które upłynęły od dokonania badania, do uzyskania rezultatu leczenia (na potrzeby *modelu Coxa*)
+* zakodowano zmienne kategoryczne `OUTCOME` i `GENDER` jako wartości numeryczne
+* usunięto zbędne dla analizy kolumny `PATIENT_ID`, `ADMISSION_TIME`, `DISCHARGE_TIME`, `RE_DATE` oraz kolumnę `2019_nCov_detection` ze względu na identyczne wartości
 
-TODO
+```{r cox data transform, echo=FALSE}
+cox.df <- df %>%
+  filter(RE_DATE < DISCHARGE_TIME) %>%
+  mutate(TIME = as.numeric(difftime(floor_date(DISCHARGE_TIME, "1 day"), floor_date(RE_DATE, "1 day"), unit="days"), unit="days")) %>%
+  mutate(GENDER = as.numeric(GENDER)) %>% 
+  mutate(OUTCOME = as.numeric(OUTCOME)) %>% 
+  select(-PATIENT_ID, -ADMISSION_TIME, -DISCHARGE_TIME, -RE_DATE) %>%
+  select(-'2019_nCov_detection')
+```
+
+W kolejnych krokach dla każdego z atrybutów (niezależnie) wykonano analizę tzw. *Hazard Ratio (HR)* przy pomocy *modelu proporcjonalnego hazardu Coxa*. 
+*Hazard Ratio* jest wyjaśnione następująco [źródło](http://www.sthda.com/english/wiki/cox-proportional-hazards-model):
+
+> Put another way, a hazard ratio above 1 indicates a covariate that is positively associated with the event probability, and thus negatively associated with the length of survival.
+
+```{r, echo=FALSE}
+# source: http://www.sthda.com/english/wiki/cox-proportional-hazards-model
+set.seed(23)
+covariates <- colnames(cox.df)
+covariates <- covariates[covariates %!in% c("TIME", "OUTCOME")]
+univ_formulas <- sapply(covariates,
+                        function(x) as.formula(paste('Surv(TIME, OUTCOME)~', x)))
+                        
+univ_models <- lapply( univ_formulas, function(x){coxph(x, data = cox.df)})
+# Extract data 
+univ_results <- lapply(univ_models,
+                       function(x){ 
+                          x <- summary(x)
+                          p.value<-x$wald["pvalue"]
+                          wald.test<-x$wald["test"]
+                          beta<-signif(x$coef[1], 4) # coefficient beta
+                          HR <-signif(x$coef[2], digits=4); #exp(beta)
+                          HR.confint.lower <- signif(x$conf.int[,"lower .95"], 2)
+                          HR.confint.upper <- signif(x$conf.int[,"upper .95"], 2)
+                          #HR <- paste0(HR, " (", HR.confint.lower, "-", HR.confint.upper, ")")
+                          res<-c(beta, HR, wald.test, p.value)
+                          names(res)<-c("beta", "HR", "wald.test", "p.value")
+                          return(res)
+                         })
+res <- t(as.data.frame(univ_results, check.names = FALSE))
+res <- as.data.frame(res)
+res <- res %>% filter(p.value < .05) %>% arrange(desc(HR))
+```
+
+Poniższa tabela prezentuje czynniki zwiększające ryzyko śmierci pacjenta. Odfiltrowane zostały czynniki nieistotne statysytcznie (*p-wartość > 0.05*) oraz te, gdzie parametr *HR* nie przekroczył wartości *1.1*.
+
+```{r}
+knitr::kable(
+  res %>% filter(HR > 1.1)
+)
+```
+
+Parametrem, który w największym stopniu zwiększa ryzyko śmierci, według przygotowanego modelu jest `basophil_count`. Jednocześnie uzskany wynik zdaje się być wątpliwy, gdyż `basophil_count` ma wartość parametru *HR* o sześć rzędów wielkości większą, niż kolejny parametr w rankingu.
+
+Pozostałe złe prognostyki, dotyczą między innymi zwiększonej obecności neutrofilów, krzepliwości krwi (wyskoie `INR`) a także jakość komórek krwi (`MPV`, `RCDW`, `PDW`).
+ 
+Poniższa tabela przedstawia dobre prognostyki jeśli chodzi o skutki leczenia. Ponownie odlitrowano czynniki nieistotne statystycznie (*p-wartość > 0.05*), oraz pozostawion wartości, gdzie parametr *HR* ma wartość poniżej *0.9*.
+
+```{r}
+knitr::kable(
+  res %>% filter(HR < 0.9)
+)
+```
+ 
+Do pozytywnych prognostyków można zaliczyć:
+
+* większy poziom albumin
+* większą proporcję monocytów, leukocytów i eozynofilów we krwi
+* płeć - kobiety mają większą szansę przeżycia
+* większy cholesterol
+
+
+Wśród czynników obniżających wpółczynnik ryzyka, znajduje się też `basophil_percent` co wydaje się być szczególnie intrygujące w kontekście wykrytych negatywnych prognostyków.
+
+Wśród wykrytych pozytywnych prognostyków, 3 ostatnie wydają się mieć bardzo istotny wpływ na obniżenie ryzyka śmierci pacjenta.
 
 
 # Techniczne
