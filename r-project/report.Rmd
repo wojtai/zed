@@ -1,5 +1,5 @@
 ---
-title: "Raport - badania krwi pacjentów zakazonych COVID-19"
+title: "Raport - badania krwi pacjentów zakażonych COVID-19"
 author: "Wojciech Taisner"
 date: "`r format(Sys.time(), '%d %B, %Y')`"
 knit: (function(input_file, encoding) {
@@ -20,7 +20,21 @@ knitr::opts_chunk$set(echo = TRUE)
 
 # Executive summary
 
-TODO
+Zbiór danych, który jest punktem wejściowym niniejszej analizy ma postać wyników badań próbek krwi, tj. jeden rekord odpowiada jednemu badaniu. Takie badanie zawierało zazwyczaj nie więcej niż 24 wartości różnych atrybutów, jednak biorąc pod uwagę fakt, że wszystkich atrybutów jest 74, zbiór w większości składa się z wartości pustych.
+
+W wyniku wykonania analizy zbiorów częstych, udało się wyodrębnić 3 zbiory współwystępujących ze sobą atrybutów badań (support > 0.05) a do tego wyznaczyć dodatkowe pojedyncze atrybuty które były badane samodzielnie. Trzem wyodrębnionym zbiorom przypisano interpretacje medyczne, odpowiednio były to atrybuty zwiazane z: morfologią krwi, biochemią krwi i krzepliwością (koagulacją).
+
+Aby zmniejszyć objętość zbioru, postanowiono scalić wyniki badań danych pacjentów, wykonanych w ciągu jednego dnia, w wypadku dwóch wartości dla jednego atrybutu wybierano ostatnią, jako najbardziej aktualną. Jednocześnie określono całkowitą ilość rodzajów badań dla każdego pacjenta, ze zbioru danych odrzucono pacjentów którzy mieli zbyt mało wykonanych badań.
+
+Analiza płci i wieku pacjentów wskazała, że w badanej próbie, śmiertelność wśród kobiet jest mniejsza niż wśród mężczyzn, jednocześnie śmiertelność jest większa wśród osób starszych, niezależnie od płci.
+
+Analiza korelacji wartości atrybutów wskazała wiele mocno ze sobą związanych atrybutów, jednak te zależności są łatwe do wyjaśnienia z perspektywy medycznej. Wyznaczono kilka czynników, które są istotnie skorelowane z atrybutem opisującym, czy pacjent przeżył chorobę COVID-19. Są to m.in.: stan układu odpornościowego (wysoka zawartość *limfocytów*, niska zawartość *neutrofilów* wśród białych krwinek), stan układu krzepnięcia, czynniki *LDG* i *hs-CRP* oraz większy poziom *albumin*.
+
+Mimo tego, że dane były zbierane od 10 stycznia 2020, zasadnicza większość pacjentów została przyjęta do szpitala po 27 stycznia. Dla grupy pacjentów, którzy zmarli z powodu COVID-19 mediana czasu pobytu w szpitalu wyniosła 6 dni, a 75% z nich przebywała w szpitalu nie więcej niż 10 dni. Dla grupy pacjentów, którzy przeżyli chorobę, mediana czasu pobytu w szpitalu wyniosła 14 dni.
+
+Stworzono dwa klasyfikatory - *Random Forest* i *SVM*, których celem było określenie, czy pacjent przeżyje chorobę COVID-19. Oba klasyfikatory wykazały się dokładnością powyżej 95% na zbiorze testowym. Dla celu stworzenia klasyfikatorów, wyniki badań zostały zagregowane do pacjentów, pozostawiając jedynie ostatnie (najbardziej aktualne) wartości dla każdego z atrybutów. Dodatkowo, klasyfikatory były trenowane jedynie na wybranym podzbiorze atrybutów, ze względu na znaczną część wartości pustych. Dla modelu *Random Forest* wyznaczono najważniejsze cechy, wśród których znalazły się parametry *LDH*, *hs-CRP* i zawartość *limfocytów* we krwi.
+
+Ostatnią częścią raportu jest analiza przeżycia, wykonana przy użyciu *modelu proporcjonalnego hazardu Coxa*. W wyniku analizy uzyskano listy pozytywnych i negatywnych prognostyków, jednak uzyskane w trakcie tej analizy wyniki, mogą wymagać dalszej weryfikacji. Jednocześnie wśród pozytywnych prognostyków, czyli czynników zmniejszających ryzko śmierci w wyniku choroby, wskazano m.in  wysoki poziom *albumin*, oraz wysoką zawartość *limfocytów* co jest w zgodzie z poprzednimi wnioskami.
 
 # Użyte biblioteki
 
@@ -48,7 +62,7 @@ library(survival)
 
 # Przetwarzanie zbioru danych
 ## Odczyt danych
-Odczyt danych przeprowdzony jest bezośrednio ze strony, aby zapewenić stałą wartość początkową dla każdego uruchomienia.
+Odczyt danych przeprowadzony jest bezpośrednio ze strony, aby zapewnić stałą wartość początkową dla każdego uruchomienia.
 Dodatkowo uzupełniane są brakujące dane identyfikatory pacjentów ```PATIENT_ID```. Wartości brakujące wynikają ze sposobu przetwarzania scalonych komórek pliku źródłowego.
 ```{r read-data, message=FALSE, results='hide'}
 # https://stackoverflow.com/a/41368947
@@ -67,7 +81,7 @@ Atrybuty zbioru danych można potwierdzić na dwie grupy:
 
 ### Brakujące dane
 
-Poza danymi niedostępnymi (`NA`) w zbiorze danych wsytępują dane brakujące, oznakowane wartością `-1`.
+Poza danymi niedostępnymi (`NA`) w zbiorze danych występują dane brakujące, oznakowane wartością `-1`.
 Poniższa tabela pokazuje ilość takich wartości w każdej kolumnie, o ile te wartości występują.
 
 ```{r, echo=FALSE}
@@ -77,7 +91,7 @@ df %>% pivot_longer(-c(RE_DATE,`Admission time`, `Discharge time`)) %>% filter(v
 ```
 
 
-Dla kolumny `Platelet count` warkości brakujących jest mało, liczby `-1` zostaną zamienione na `NA`.
+Dla kolumny `Platelet count` wartości brakujących jest mało, liczby `-1` zostaną zamienione na `NA`.
 
 ```{r}
 df <- df %>% mutate(`Platelet count` = if(is.na(`Platelet count`) || `Platelet count` != -1) `Platelet count` else NA)
@@ -102,12 +116,12 @@ Pierwszych siedem kolumn to atrybuty ogólne, reprezentują następująco:
 * PATEINT_ID - sztuczny identyfikator pacjenta
 * RE_DATE - najpewniej jest to data wprowadzenia wyniku badań próbki krwi do systemu
 * age - wiek pacjenta
-* gender - płeć pacjenta, przyjmuje wartość 1 albo 2, ale z poisu zbioru danych nie wynika wprost, które oznaczenie jest przypisane do której płci
+* gender - płeć pacjenta, przyjmuje wartość 1 albo 2, ale z opisu zbioru danych nie wynika wprost, które oznaczenie jest przypisane do której płci
 * Admission time - czas przyjęcia pacjenta do szpitala
-* Discharge time - czas zakończenia leczenia (w skutek wypisu pacjenta lub jego śmierci)
+* Discharge time - czas zakończenia leczenia (wskutek wypisu pacjenta lub jego śmierci)
 * outcome - rezultat, przyjmuje wartość 0 jeżeli pacjent został wyleczony, lub wartość 1 jeżeli zmarł.
 
-Nazwy wyżej wymienionych atrybutów zostaną przeformatowane, będą pisane wielkimi literami, a ewentualne spacje będą zamieniane na znak podkreślinka `_`, w ten sposób atrbuty ogólne będą łatwo odróżnialne od pozostałych atrybutów.
+Nazwy wyżej wymienionych atrybutów zostaną przeformatowane, będą pisane wielkimi literami, a ewentualne spacje będą zamieniane na znak podkreślinka `_`, w ten sposób atrybuty ogólne będą łatwo odróżnialne od pozostałych atrybutów.
 
 ```{r rename top 7 columns}
 df <- df %>% rename_with(~ toupper(gsub(" ", "_", .x, fixed = TRUE)), 1:7)
@@ -116,7 +130,7 @@ df <- df %>% rename_with(~ toupper(gsub(" ", "_", .x, fixed = TRUE)), 1:7)
 Pola `GENDER` i `OUTCOME` zostaną dodatkowo zmienione na typ `factor` - z typu numerycznego zamienione zostaną na zmienne nominalne.
 Do tego trzeba przeprowadzić identyfikację typu płci.
 
-Wartości płci nie są jawnie opisane, w artykule źródłowym została natomiast podana proporcja pacjentów danej płci, co powinno umożliwić okreslenie właściwego przypisania.
+Wartości płci nie są jawnie opisane, w artykule źródłowym została natomiast podana proporcja pacjentów danej płci, co powinno umożliwić określenie właściwego przypisania.
 ```{r, echo=FALSE}
 knitr::kable(
 df %>% group_by(PATIENT_ID) %>% summarise_all(last) %>% count(GENDER) %>% rename("count" = "n"),
@@ -137,12 +151,12 @@ df <- df %>%
 ```
 
 Poniżej można zapoznać się z analizą wartości dla atrybutów ogólnych.
-Wartość atrybutu `RE_DATE` ma unikalną wartość dla kazdego wiersza.
+Wartość atrybutu `RE_DATE` ma unikalną wartość dla każdego wiersza.
 
 ```{r re_date summary, echo=FALSE}
 knitr::kable(summary(select(df, RE_DATE)))
 ```
-Pozostałe z atrybtów ogólnych, są wspólne dla każdego pacjenta, zastosowano transformację do zniwelowania skutków duplikacji.
+Pozostałe z atrybutów ogólnych, są wspólne dla każdego pacjenta, zastosowano transformację do zniwelowania skutków duplikacji.
 
 ```{r top summary, echo=FALSE}
 options(knitr.kable.NA = '')
@@ -167,10 +181,10 @@ Nazwy kolumn zostały poddane następującym transformacjom:
 * Zamieniono długie nazwy kolumn na krótkie, skrótowe odpowiedniki, na podstawie nazw medycznych (częściowy *code book* dostępny jest w repozytorium)
 * oznaczenia `(%)` zamieniono na suffix `_percent`
 * oznaczenia `(#)` usunięto
-* nazwy zaczynajace się wielką literą i poza tym skłądające się z małych liter zamieniono na odpowiedniki skłądające się wyłącznie z małych znaków, jednak skrótowce zostały zachwowane
+* nazwy zaczynające się wielką literą i poza tym składające się z małych liter zamieniono na odpowiedniki składające się wyłącznie z małych znaków, jednak skrótowce zostały zachowane
 * znak spacji ` ` i myślnika `-` zamieniono na podkreślenie dolne `_` ze względu na łatwość odwołania się do kolumn
 
-Poniższy blok kodu szczegółowo ukazuje zatosowane transfomrmacje, jednocześnie prezentowana są ostatenczne nazwy kolumn wyników badań.
+Poniższy blok kodu szczegółowo ukazuje zastosowane transformacje, jednocześnie prezentowana są ostateczne nazwy kolumn wyników badań.
 
 ```{r renaming attributes names}
 df <- df %>%
@@ -210,7 +224,7 @@ str_sort(colnames(df[,-(1:7)]))
 
 ## Czyszczenie zbioru danych
 
-Niniejsza sekcja jest poświęcona wstępnemu przetwarzniu zbiorów danych, ze szczególnym uwzględnieniem usuwania i scalania wybranych rekordów.
+Niniejsza sekcja jest poświęcona wstępnemu przetwarzaniu zbiorów danych, ze szczególnym uwzględnieniem usuwania i scalania wybranych rekordów.
 
 ### Puste rekordy w zbiorze
 
@@ -229,8 +243,8 @@ Po tej zmianie w zbiorze pozostało `r nrow(df)` wierszy i `r length(unique(df$P
 
 ### Kategorie badań
 
-Wstępnę analiza danych sugeruje wskazuje, że wiele wartości atrybutów jest oznaczona wartością 'NA'.
-Poniższy wykresy wskazuje, ilość wystąpień rekordów badań z danę liczbą wartości (różnych od `NA`).
+Wstępna analiza danych sugeruje wskazuje, że wiele wartości atrybutów jest oznaczona wartością 'NA'.
+Poniższy wykresy wskazuje, ilość wystąpień rekordów badań z daną liczbą wartości (różnych od `NA`).
 
 ```{r, echo=FALSE}
 ggplot(
@@ -263,7 +277,7 @@ length(unique(apply(transactions, 1, function(x) which(x))))
 W zbiorze `r nrow(transactions)` transakcji jest zaledwie `r length(unique(apply(transactions, 1, function(x) which(x))))` różnych typów.  
 
 
-Aby sprawdzić, czy atrybuty wsytępują w grupach, wyszukiwane są maksymalne domknięte zbiory częste, dla mimalnej wartości `support` równej `5%`.
+Aby sprawdzić, czy atrybuty występują w grupach, wyszukiwane są maksymalne domknięte zbiory częste, dla minimalnej wartości `support` równej `5%`.
 
 ```{r apriori, message=FALSE}
 itemsets <- apriori(transactions, parameter = list(target="closed frequent itemsets", support=.05, minlen=1, maxlen=30, maxtime=60))
@@ -274,20 +288,20 @@ inspect(sort(mc_itemsets, by = 'support'))
 ```
 
 
-Otrzymaliśmy 10 maksymalnych domkniętych zbiorów częstych, z czego 7 to zbiory jednolementowe.
+Otrzymaliśmy 10 maksymalnych domkniętych zbiorów częstych, z czego 7 to zbiory jednoelementowe.
 Pozostałe 3 zbiory (1, 3 i 10) zawierają wiele elementów. 
-Na podstawie elementów składowych, zbiory wieolemelemnetowe zostały zakwalifikowane następująco:
+Na podstawie elementów składowych, zbiory wieloelemntowe zostały zakwalifikowane następująco:
 
-* Zbiór 1 - zawiera elementy typowe dla badania *morfologii krwi* (ang. *Compete blood count (CBC)*)
+* Zbiór 1 - zawiera elementy typowe dla badania *morfologii krwi* (ang. *Complete blood count (CBC)*)
 * Zbiór 3 - zawiera elementy typowe dla badania *biochemii krwi* (ang. *Blood biochemistry*)
 * Zbiór 10 - zawiera elementy typowe dla badania *krzepliwości krwi* (ang. *Coagulation*)
 
 Na podstawie uzyskanego wyniku można wnioskować, że ilość elementów w rekordzie może wynikać z procesu technologicznego analizowania próbek krwi.
-Sugeruje to, że możliwe będzie scalanie rekordów, np na podstawie dnia wykonania badania (jeśli jednemu pacjentowi przeprowadzono wiele badań w ciagu dnia).
+Sugeruje to, że możliwe będzie scalanie rekordów, np na podstawie dnia wykonania badania (jeśli jednemu pacjentowi przeprowadzono wiele badań w ciągu dnia).
 
 ### Badania w czasie
 
-W tej sekcji przeprowadzona zostanie analiza występowania badań w czasie. Ponadto rekordy zostaną pogrupowane według przynależności do zbiorów wyznaczonych w poprzedniej sekcji oraz dwóch dodatkowych klas `NONE` jeśli rekord nie należy do żadnej kategorii i `MULTIPLE` jeśli rekod należy do więcej niż jednej kategorii.
+W tej sekcji przeprowadzona zostanie analiza występowania badań w czasie. Ponadto rekordy zostaną pogrupowane według przynależności do zbiorów wyznaczonych w poprzedniej sekcji oraz dwóch dodatkowych klas `NONE` jeśli rekord nie należy do żadnej kategorii i `MULTIPLE` jeśli rekord należy do więcej niż jednej kategorii.
 
 Poniższe blok kodu generuje oetykietowany zbiór rekordów badań, ograniczony jedynie do podstawowych informacji.
 
@@ -347,16 +361,16 @@ ggplotly(group.plot)
 
 Z powyższego wykresu można wywnioskować kilka rzeczy:
 
-* Większość badań została przeprowadzona po 27 stycznia 2020, wszystkie badania zostały wykonane do 19 lutego 2020. Można rozważyć przeprowadzenie dodatkowej analizy skupiającej się na ilości przyjęć i wypisów ze szpitala, w zależności od dnia, aby wyciągnąć dodatkowe wnioski. Fakt ten moze wynikać ze zwiększonej liczby przyjmowanych pacjentów po 27 stycznia 2020.
-* Część badań nie była w praktyce przeprowdzana (lub na małą skalę) przed 27 stycznia 2020
-* Na wykresie można zaobserwować, że poszczególne punkty są często zgrupowane w "paski" - takie grupy rekordów cechują się małymi różnicami w wartości atrybutu `RE_DATE`. Biorąc pod uwagę fakt, że takie punkty najcześciej przynależą do różnych pacjentów i do tej samej kategorii, należy wnioskować, że poszczególne rodzaje badań były wykonywane równolegle dla wielu pacjentów.
+* Większość badań została przeprowadzona po 27 stycznia 2020, wszystkie badania zostały wykonane do 19 lutego 2020. Można rozważyć przeprowadzenie dodatkowej analizy skupiającej się na ilości przyjęć i wypisów ze szpitala, w zależności od dnia, aby wyciągnąć dodatkowe wnioski. Fakt ten może wynikać ze zwiększonej liczby przyjmowanych pacjentów po 27 stycznia 2020.
+* Część badań nie była w praktyce przeprowadzana (lub na małą skalę) przed 27 stycznia 2020
+* Na wykresie można zaobserwować, że poszczególne punkty są często zgrupowane w "paski" - takie grupy rekordów cechują się małymi różnicami w wartości atrybutu `RE_DATE`. Biorąc pod uwagę fakt, że takie punkty najczęściej przynależą do różnych pacjentów i do tej samej kategorii, należy wnioskować, że poszczególne rodzaje badań były wykonywane równolegle dla wielu pacjentów.
 
 Jednocześnie nie znaleziono żadnych czynników, które podważają sens scalania rekordów.
 
 ### Badania pacjentów
 
 Kolejna analiza dotyczy ilości różnych atrybutów zbadanych u każdego pacjenta.
-W tym celu wyznaczamy wektor wartości ostatnich badań każdego z pacjentów, tj wynik każdego badania jest najmłodszy i różny od `NA`, jeśli dany pacjent nie ma przypisanego żadnego rekordu zawierajacego wartość danego atrybutu, to wartość ta nadal będzie oznakowana jako `NA`. 
+W tym celu wyznaczamy wektor wartości ostatnich badań każdego z pacjentów, tj wynik każdego badania jest najmłodszy i różny od `NA`, jeśli dany pacjent nie ma przypisanego żadnego rekordu zawierającego wartość danego atrybutu, to wartość ta nadal będzie oznakowana jako `NA`. 
 
 ```{r group by patient id, echo=FALSE}
 patient_last_results <- df %>% 
@@ -380,7 +394,7 @@ Rekordy tych pacjentów zostaną usunięte ze zbioru danych.
 
 #### Usuwanie pacjentów z znacząco mniejszą liczbą badań
 
-W celu usunięcia pacjentów z mniejszą ilością badań, zostanie wyznaczony próg minimlanej ilości badań.
+W celu usunięcia pacjentów z mniejszą ilością badań, zostanie wyznaczony próg minimalnej ilości badań.
 Próg ten przyjmuje wartość między 0 a 1, należy go interpretować jako minimalną procentową ilość badań, które musi mieć wykonany pacjent.
 Maksimum stanowi ilość wszystkich badanych atrybutów, czyli `r ncol(df)-7`.
 
@@ -433,7 +447,7 @@ Po usunięciu rekordów pacjentów, u których przeprowadzono mało badań, pozo
 
 #### Brakujące wartości w kategoriach
 
-Poniższy histogram prezentuje ilość kolumn, według ilości brakujących wartości badań w każdej kolumnie, biorąc pod uwagę wszystkie wyniki każdego z pacjentów. Dodatkowo nazwy kolumn zostały oznaczone według przynależności do jednej z grup badań (sekcja "Współwystępowanie badań"), lub opsiane wartością NONE, jesli nie należą do żadnej z nich.
+Poniższy histogram prezentuje ilość kolumn, według ilości brakujących wartości badań w każdej kolumnie, biorąc pod uwagę wszystkie wyniki każdego z pacjentów. Dodatkowo nazwy kolumn zostały oznaczone według przynależności do jednej z grup badań (sekcja "Współwystępowanie badań"), lub opisane wartością NONE, jeśli nie należą do żadnej z nich.
 
 ```{r number of missing values in each column, echo=FALSE}
 column.counts <- df %>% 
@@ -489,7 +503,7 @@ W kolejnych krokach można rozważyć odrzucenie pacjentów, którzy nie mają w
 
 ## Agregacja wierszy według daty badania
 
-W zwiazku z brakiem wykrytycyh preciwskazań, w tym kroku przeprowadzono scalanie wyników badań każdego pacjenta, według dnia jego wykonania, tj. wszystkie rekordy z danego dnia zostaną scalone w jeden rekord, który zawiera wszystkie, najbardziej aktualne wyniki z danego dnia.
+W związku z brakiem wykrytych przeciwwskazań, w tym kroku przeprowadzono scalanie wyników badań każdego pacjenta, według dnia jego wykonania, tj. wszystkie rekordy z danego dnia zostaną scalone w jeden rekord, który zawiera wszystkie, najbardziej aktualne wyniki z danego dnia.
 
 ```{r group by day}
 df <- df %>% 
@@ -514,7 +528,7 @@ ggplot(
 
 ```
 
-Powyższy histogram prezentuje ilość rekordów zawierających daną ilość wyników badań. Pomimo znacznej ilości rekordów zawierajacych tylko jeden wynik badania, obserwujemy wzrost w ilości rekordów zawierających ponad 40 wyników badań, w porównaniu do wyników przed agregacją. 
+Powyższy histogram prezentuje ilość rekordów zawierających daną ilość wyników badań. Pomimo znacznej ilości rekordów zawierających tylko jeden wynik badania, obserwujemy wzrost w ilości rekordów zawierających ponad 40 wyników badań, w porównaniu do wyników przed agregacją. 
 
 # Zbiór danych
 
@@ -538,7 +552,7 @@ ggplotly(gender.plot)
 
 ### Wiek
 
-Poniższy wykres przedstawia rozkład wieku w zależności od wyniku leczenia i płci pcajenta. Większość ze zmarłych pacjentów ma powyżej 60 lat, co sugeruje że grupa starszych pacjentów jest bardziej narażona na śmierć w wyniku choroby spowodowanej zarażeniem wirusem.
+Poniższy wykres przedstawia rozkład wieku w zależności od wyniku leczenia i płci pacjenta. Większość ze zmarłych pacjentów ma powyżej 60 lat, co sugeruje że grupa starszych pacjentów jest bardziej narażona na śmierć w wyniku choroby spowodowanej zakażeniem wirusem.
 
 ```{r, echo=FALSE}
 age <- ggplot(
@@ -601,11 +615,11 @@ cor_df %>% filter(colname>rowname) %>% arrange(desc(abs(value))) %>% head(30)
 Można zaobserwować wiele mocno skorelowanych parametrów, m.in:
 
 * miary `MPV`, `P-LCR` i `PDW` odnoszą się do wielkości płytek krwi (odpowiednio: *mean platelet volume*, *platelet - large cell ratio* i *platelet distribution width*), więc ich wysokie skorelowanie jest łatwe do wyjaśnienia.
-* `lymphocytes_percent` i `neutrophils_percent` - określają proporcje białych krwniek danego typu w krwi pacjenta
+* `lymphocytes_percent` i `neutrophils_percent` - określają proporcje białych krwinek danego typu w krwi pacjenta
 * `INR` z definicji jest właściwie liniowo zależna od `prothrombin_time`
 * `direct_bilirubin` jest składową `total_bilirubin`
 
-Dodatkowo sprawdzona zostanie korelacja poszczególnych parametrów z wynikiem leczenia chorego (`isCured`). Poniższa tabela zawiera wartości korelacji Pearsona wraz z przedziałem ufności i p-wartością (wszystkie z pokazanych korelacji są istotne statysytycznie) dla 15 najmocniej skorelowanych parametrów.
+Dodatkowo sprawdzona zostanie korelacja poszczególnych parametrów z wynikiem leczenia chorego (`isCured`). Poniższa tabela zawiera wartości korelacji Pearsona wraz z przedziałem ufności i p-wartością (wszystkie z pokazanych korelacji są istotne statystycznie) dla 15 najmocniej skorelowanych parametrów.
 
 ```{r, echo=FALSE}
 correlations <- df %>% mutate(isCURED=as.numeric(OUTCOME=="CURED")) %>% 
@@ -623,7 +637,7 @@ correlations
 )
 ```
 
-Z powyższej tabli wynika, że wpływ na wynik choroby pacjenta mają: 
+Z powyższej tabeli wynika, że wpływ na wynik choroby pacjenta mają: 
 
 * stan układu odpornościowego (wysoka proporcja `lymphocyte` i niska proporcja `neutrophils`)
 * stan układu krzepnięcia (`prothrombin_activity`, `D_D_dimer`, `FDPs`)
@@ -657,9 +671,9 @@ ggplotly(tplot)
 
 Analiza przyjęć i wypisów nie przynosi żadnych istotnych wniosków. Obserwujemy jedynie zwiększoną ilość wypisów wyleczonych pacjentów między 16 a 20 lutego. Obserwowane luki w czasach przyjęć i wypisów mogą wynikać z podziału zbioru danych na część treningową (analizowaną) i testową (wyłączoną z niniejszej analizy).
 
-### Czas hosptializacji
+### Czas hospitalizacji
 
-Poniżesz wykresy prezentują odpowiednio rozkład czasu pobytu pacjentów w szpitalu w zależności od wyników leczenia a także histogram długości pobytu w szpitalu z podziałem na wynik leczenia.
+Poniższy wykresy prezentują odpowiednio rozkład czasu pobytu pacjentów w szpitalu w zależności od wyników leczenia a także histogram długości pobytu w szpitalu z podziałem na wynik leczenia.
 
 ```{r, echo=FALSE, out.width="100%", fig.width=10}
 ht <- df %>% select(1:7) %>% select(-RE_DATE) %>% 
@@ -680,7 +694,7 @@ grid.arrange(ht.boxplot, ht.hist, ncol=2, widths=1:2)
 
 Obserwujemy, że w grupy pacjentów, którzy zmarli, czas pobytu w szpitalu wynosił do 10 dni (75% przypadków). Tę cechę można potencjalnie wykorzystać przy przygotowaniu klasyfikatora.
 
-Jednocześnie poczyniona obserwacja każe się zastanowić nad dokładnością klasyfikatora zaproponowanego przez autorów [artykułu](https://www.nature.com/articles/s42256-020-0180-7), z którego pochodzą dane. Badacze twierdzą, że dokładność wynosi ponad 90% nawet 10 dni przed poznaniem dokłądnego wyniku leczenia. Z drugiej strony, odrzucenie badań które powstały później, niż 10 dni przed pozniem ostatecznego wyniku, skutkuje odrzuceniem danych o większości zmarłych pacjentów, co pozostawia niezbalansowany zbiór danych. Jak wiadomo dokładność klasyfikatora nie jest odpowiednią do zastosowania metryką przy klasyfikacji niezbalansowanych zbiorów, a wartość miary *Kappa* nie została podana w treści artykułu, co utrudnia ocenienie jakości zaprezentowanego w artykule modelu.
+Jednocześnie poczyniona obserwacja każe się zastanowić nad dokładnością klasyfikatora zaproponowanego przez autorów [artykułu](https://www.nature.com/articles/s42256-020-0180-7), z którego pochodzą dane. Badacze twierdzą, że dokładność wynosi ponad 90% nawet 10 dni przed poznaniem dokładnego wyniku leczenia. Z drugiej strony, odrzucenie badań które powstały później, niż 10 dni przed poznaniem ostatecznego wyniku, skutkuje odrzuceniem danych o większości zmarłych pacjentów, co pozostawia niezbalansowany zbiór danych. Jak wiadomo dokładność klasyfikatora nie jest odpowiednią do zastosowania metryką przy klasyfikacji niezbalansowanych zbiorów, a wartość miary *Kappa* nie została podana w treści artykułu, co utrudnia ocenienie jakości zaprezentowanego w artykule modelu.
 
 # Klasyfikator
 
@@ -704,9 +718,9 @@ patients <- df %>%
 
 W związku z tym, że dla części pacjentów nie ma dostępnych wszystkich wyników badań, niezbędne jest dalsze przetwarzanie zbioru danych.
 
-Grupa cech "Biochemia krwi" (sekcja **Współwystępowanie kategorii**) została określona jako minimalny zbiór cech, które powinny być obecne w każdym rekordzie. Ten wybór jest uzasadniony tym, że autorzy [artykułu](https://www.nature.com/articles/s42256-020-0180-7) źródłowego wśrod najbardziej znaczących cech wskazali `LDH` i `hs_CRP`, które należą do tej grupy.
+Grupa cech "Biochemia krwi" (sekcja **Współwystępowanie kategorii**) została określona jako minimalny zbiór cech, które powinny być obecne w każdym rekordzie. Ten wybór jest uzasadniony tym, że autorzy [artykułu](https://www.nature.com/articles/s42256-020-0180-7) źródłowego wśród najbardziej znaczących cech wskazali `LDH` i `hs_CRP`, które należą do tej grupy.
 
-Po odrzuceniu rekordów, które nie zawieraływ szystkich wskazanych cech, usunięto kolumny, które zawierały wartości `NA`. W wyniku tego przetwarzania uzyskano czysty zbiór, który może być wykorzystany do trenowania klasyfikatora.
+Po odrzuceniu rekordów, które nie zawierały wszystkich wskazanych cech, usunięto kolumny, które zawierały wartości `NA`. W wyniku tego przetwarzania uzyskano czysty zbiór, który może być wykorzystany do trenowania klasyfikatora.
 
 ```{r feature selection}
 features <- class_labels[[3]]
@@ -752,14 +766,14 @@ patientsTest  <- patients[-inTraining[,1],]
 ```
 
 
-## Klaysfikatory 
+## Klasyfikatory 
 
 W tej części zostaną wytrenowane i przetestowane dwa klasyfikatory - *Random Forest* i *SVM*.
 W trenowaniu zostanie wykorzystana powtarzalna walidacja krzyżowa, z podziałem na 10 części i trzema powtórzeniami.
 
 ### Random forest
 
-W modelu *Random Forest* optymlizowany będzie parametr `mtree` określający ilość parametrów, które trafią do drzewa w każdej rundzie podziałów. Jednocześnie ustalono, że wartość parametru określającą ilość drzew w lesie `ntree` będzie wynosiła 30.
+W modelu *Random Forest* optymalizowany będzie parametr `mtree` określający ilość parametrów, które trafią do drzewa w każdej rundzie podziałów. Jednocześnie ustalono, że wartość parametru określającą ilość drzew w lesie `ntree` będzie wynosiła 30.
 
 ```{r}
 set.seed(23)
@@ -775,7 +789,7 @@ rf.fit <- train(OUTCOME ~ .,
 rf.fit
 ```
 
-Wyniki uzyskane w trakcie procesu trenowania charakteryzują się wysoką dokładnością i wartością miary Kappa, co suegeruje że klasyfikator moze dobrze wykonywać swoje zadanie. W kolejnych krokach te wyniki zostaną zweryfikowane na zbiorze testowym.
+Wyniki uzyskane w trakcie procesu trenowania charakteryzują się wysoką dokładnością i wartością miary Kappa, co sugeruje że klasyfikator może dobrze wykonywać swoje zadanie. W kolejnych krokach te wyniki zostaną zweryfikowane na zbiorze testowym.
 
 ```{r}
 set.seed(23)
@@ -785,7 +799,7 @@ confusionMatrix(data = rf.predict, patientsTest$OUTCOME)
 
 Klasyfikator pomylił się w 4 przypadkach (na 85) osiągając dokładność na poziomie 95%.
 
-W związkuz  tym, że modeł *Random Forest* jest łatwo interpretowalny, w łatwy sposób można uzyskać ważność cech, która jest przedstawiona w tabeli poniżej.
+W związku z tym, że model *Random Forest* jest łatwo interpretowalny, w łatwy sposób można uzyskać ważność cech, która jest przedstawiona w tabeli poniżej.
 
 ```{r, message=FALSE, echo=FALSE}
 vi <- varImp(rf.fit, scale=FALSE)
@@ -798,7 +812,7 @@ Należy zauważyć, że cechy `LDH` i `hs_CRP`, a także `lymphocyte_percent` s�
 
 ### SVM
 
-Dla modelu *Support Vector Machine* z kernelem liniowym, optymalizowany jest prametr kosztu.
+Dla modelu *Support Vector Machine* z kernelem liniowym, optymalizowany jest parametr kosztu.
 
 ```{r svm fit}
 set.seed(23)
@@ -846,7 +860,7 @@ cox.df <- df %>%
 ```
 
 W kolejnych krokach dla każdego z atrybutów (niezależnie) wykonano analizę tzw. *Hazard Ratio (HR)* przy pomocy *modelu proporcjonalnego hazardu Coxa*. 
-*Hazard Ratio* jest wyjaśnione następująco [źródło](http://www.sthda.com/english/wiki/cox-proportional-hazards-model):
+*Hazard Ratio* jest wyjaśnione następująco ([źródło](http://www.sthda.com/english/wiki/cox-proportional-hazards-model)):
 
 > Put another way, a hazard ratio above 1 indicates a covariate that is positively associated with the event probability, and thus negatively associated with the length of survival.
 
@@ -879,7 +893,7 @@ res <- as.data.frame(res)
 res <- res %>% filter(p.value < .05) %>% arrange(desc(HR))
 ```
 
-Poniższa tabela prezentuje czynniki zwiększające ryzyko śmierci pacjenta. Odfiltrowane zostały czynniki nieistotne statysytcznie (*p-wartość > 0.05*) oraz te, gdzie parametr *HR* nie przekroczył wartości *1.1*.
+Poniższa tabela prezentuje czynniki zwiększające ryzyko śmierci pacjenta. Odfiltrowane zostały czynniki nieistotne statystycznie (*p-wartość > 0.05*) oraz te, gdzie parametr *HR* nie przekroczył wartości *1.1*.
 
 ```{r, echo=FALSE}
 knitr::kable(
@@ -887,11 +901,11 @@ knitr::kable(
 )
 ```
 
-Parametrem, który w największym stopniu zwiększa ryzyko śmierci, według przygotowanego modelu jest `basophil_count`. Jednocześnie uzskany wynik zdaje się być wątpliwy, gdyż `basophil_count` ma wartość parametru *HR* o sześć rzędów wielkości większą, niż kolejny parametr w rankingu.
+Parametrem, który w największym stopniu zwiększa ryzyko śmierci, według przygotowanego modelu jest `basophil_count`. Jednocześnie uzyskany wynik zdaje się być wątpliwy, gdyż `basophil_count` ma wartość parametru *HR* o sześć rzędów wielkości większą, niż kolejny parametr w rankingu.
 
-Pozostałe złe prognostyki, dotyczą między innymi zwiększonej obecności neutrofilów, krzepliwości krwi (wyskoie `INR`) a także jakość komórek krwi (`MPV`, `RCDW`, `PDW`).
+Pozostałe złe prognostyki, dotyczą między innymi zwiększonej obecności neutrofilów, krzepliwości krwi (wysokie `INR`) a także jakość komórek krwi (`MPV`, `RCDW`, `PDW`).
  
-Poniższa tabela przedstawia dobre prognostyki jeśli chodzi o skutki leczenia. Ponownie odlitrowano czynniki nieistotne statystycznie (*p-wartość > 0.05*), oraz pozostawion wartości, gdzie parametr *HR* ma wartość poniżej *0.9*.
+Poniższa tabela przedstawia dobre prognostyki jeśli chodzi o skutki leczenia. Ponownie odfiltrowano czynniki nieistotne statystycznie (*p-wartość > 0.05*), oraz pozostawiono wartości, gdzie parametr *HR* ma wartość poniżej *0.9*.
 
 ```{r, echo=FALSE}
 knitr::kable(
@@ -907,16 +921,16 @@ Do pozytywnych prognostyków można zaliczyć:
 * większy cholesterol
 
 
-Wśród czynników obniżających wpółczynnik ryzyka, znajduje się też `basophil_percent` co wydaje się być szczególnie intrygujące w kontekście wykrytych negatywnych prognostyków.
+Wśród czynników obniżających współczynnik ryzyka, znajduje się też `basophil_percent` co wydaje się być szczególnie intrygujące w kontekście wykrytych negatywnych prognostyków.
 
-Wśród wykrytych pozytywnych prognostyków, 3 ostatnie wydają się mieć bardzo istotny wpływ na obniżenie ryzyka śmierci pacjenta.
+Wśród wykrytych pozytywnych prognostyków, 3 ostatnie wydają się mieć bardzo istotny wpływ na obniżenie ryzyka śmierci pacjenta, jednocześnie należy zwrócić uwagę na nadzwyczajnie niskie wartości parametru *HR* i podchodzić do nich z dystansem.
 
 
 # Techniczne
 
-Ninejsza sekcja zawiera dodatkowe informacje o technicznych parametrach raportu
+Niniejsza sekcja zawiera dodatkowe informacje o technicznych parametrach raportu
 
-## Wszytkie użyte pakiety
+## Wszystkie użyte pakiety
 
 ```{r}
 unique(c(.packages(), loadedNamespaces()))
